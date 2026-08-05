@@ -34,6 +34,17 @@ pub struct Settings {
     pub show_status_bar: bool,
     pub show_preview: bool,
     pub show_filmstrip: bool,
+    /// The preview-and-history panel on the content tabs.
+    pub show_side_panel: bool,
+    /// Which edge that panel is docked to: "right" or "bottom". A string
+    /// rather than an enum so an unknown value from a newer build degrades to
+    /// the default instead of refusing to parse the whole settings file.
+    pub side_panel_placement: String,
+    /// How big the operator has dragged that panel, per edge. Kept as two
+    /// numbers rather than one so switching edges restores the size that edge
+    /// had, instead of reusing a width as a height.
+    pub side_panel_width: f64,
+    pub side_panel_height: f64,
     /// Named looks. A screen points at one; several screens may share it.
     pub presets: Vec<Preset>,
     /// Keyed by screen id — monitors and web screens alike, so a browser
@@ -76,6 +87,10 @@ impl Default for Settings {
             show_status_bar: true,
             show_preview: true,
             show_filmstrip: true,
+            show_side_panel: true,
+            side_panel_placement: "right".into(),
+            side_panel_width: 268.0,
+            side_panel_height: 208.0,
             presets: builtin_presets(),
             displays: BTreeMap::new(),
             web_screens: Vec::new(),
@@ -123,11 +138,15 @@ pub struct DisplayConfig {
     pub enabled: bool,
     /// Id of the preset this screen renders with.
     pub preset: String,
+    /// What the operator calls this screen. Empty means the name the system
+    /// gives it — kept as the fallback rather than copied in, so a monitor
+    /// that is never renamed still follows whatever the OS reports.
+    pub name: String,
 }
 
 impl Default for DisplayConfig {
     fn default() -> Self {
-        Self { enabled: false, preset: PRESET_STANDARD.into() }
+        Self { enabled: false, preset: PRESET_STANDARD.into(), name: String::new() }
     }
 }
 
@@ -938,7 +957,10 @@ mod tests {
         let mut settings = Settings::default();
         settings
             .displays
-            .insert("display-0".into(), DisplayConfig { enabled: true, preset: "gone".into() });
+            .insert(
+                "display-0".into(),
+                DisplayConfig { enabled: true, preset: "gone".into(), ..Default::default() },
+            );
         repair(&mut settings);
         assert_eq!(settings.displays["display-0"].preset, PRESET_STANDARD);
     }

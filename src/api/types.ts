@@ -316,6 +316,8 @@ export interface DisplayConfig {
   enabled: boolean;
   /** Id of the preset this screen renders with. */
   preset: string;
+  /** What the operator calls this screen; empty means the system's own name. */
+  name: string;
 }
 
 export interface Settings {
@@ -330,6 +332,14 @@ export interface Settings {
   showStatusBar: boolean;
   showPreview: boolean;
   showFilmstrip: boolean;
+  /** The preview-and-history panel on the content tabs. */
+  showSidePanel: boolean;
+  /** Which edge that panel is docked to. */
+  sidePanelPlacement: "right" | "bottom";
+  /** How big the operator has dragged it, per edge — so switching edges
+   *  restores that edge's size rather than reusing a width as a height. */
+  sidePanelWidth: number;
+  sidePanelHeight: number;
   /** Screens served over the network rather than driven by a cable. */
   webScreens: WebScreen[];
   /** Which sound device audio and video go out of; empty is the system default. */
@@ -379,6 +389,8 @@ export interface Track {
   path: string;
   /** Start again at the end. Saved per track. */
   looping: boolean;
+  /** How loud this track sits against the others, 0..1. Saved per track. */
+  volume: number;
   missing: boolean;
 }
 

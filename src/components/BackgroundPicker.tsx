@@ -47,6 +47,16 @@ export function BackgroundPicker({
   const imageExtensions = useImageExtensions();
   const [busy, setBusy] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
+  /**
+   * The droppable region: the whole field, not just the tiles.
+   *
+   * Kept apart from `gridRef`, which the reorder drag measures tiles against
+   * and so has to stay the grid itself. The two disagreed before — "Drop
+   * photos or videos here" is printed under the grid, outside the only area
+   * that would accept a drop, so a drop aimed at the words it tells you to aim
+   * at was silently ignored.
+   */
+  const dropRef = useRef<HTMLDivElement>(null);
   const openMenu = useContextMenu();
   const order = useStore((s) => s.settings.backgroundOrder);
   const patchSettings = useStore((s) => s.patchSettings);
@@ -140,14 +150,14 @@ export function BackgroundPicker({
   // own grid, and the one you dropped on is the one that changes.
   const onDrop = useCallback(
     (paths: string[], position: { x: number; y: number }) => {
-      if (within(gridRef, position)) void importFiles(paths);
+      if (within(dropRef, position)) void importFiles(paths);
     },
     [importFiles],
   );
   const onReject = useCallback(
     (paths: string[], position: { x: number; y: number }) => {
       // Both pickers hear every drop; only the one dropped on should complain.
-      if (!within(gridRef, position)) return;
+      if (!within(dropRef, position)) return;
       toast(
         t("style.mediaUnsupported", {
           files: paths.map((path) => path.split(/[\\/]/).pop() ?? path).join(", "),
@@ -158,8 +168,13 @@ export function BackgroundPicker({
     [t, toast],
   );
 
-  const dragging = useFileDrop({ extensions: accepted, onDrop, onReject, enabled: !busy });
-  const over = !!dragging && within(gridRef, dragging);
+  const dragging = useFileDrop({
+    extensions: accepted,
+    onDrop,
+    onReject,
+    enabled: !busy,
+  });
+  const over = !!dragging && within(dropRef, dragging);
 
   // A press has to travel a few pixels before it counts as a drag, so a plain
   // click still selects. The "+" tile is past the end and is not a drop target.
@@ -172,7 +187,11 @@ export function BackgroundPicker({
   /** Chooses a colour and selects it, adding it to the shared palette. */
   const addColor = () => {
     void dialogs
-      .color({ title: t("style.colorPick"), label: t("style.color"), value: color })
+      .color({
+        title: t("style.colorPick"),
+        label: t("style.color"),
+        value: color,
+      })
       .then((picked) => {
         if (!picked) return;
         const value = picked.toLowerCase();
@@ -186,7 +205,11 @@ export function BackgroundPicker({
   /** Replaces one palette entry, and follows it if this slot was using it. */
   const editColor = (current: string) => {
     void dialogs
-      .color({ title: t("style.colorChange"), label: t("style.color"), value: current })
+      .color({
+        title: t("style.colorChange"),
+        label: t("style.color"),
+        value: current,
+      })
       .then((picked) => {
         if (!picked || picked === current) return;
         saveOrder(entries.map((entry) => (entry === current ? picked : entry)));
@@ -225,111 +248,127 @@ export function BackgroundPicker({
 
   return (
     <>
-      <Field label={t("style.media")} hint={t("style.mediaDropHint")}>
-        <div
-          ref={gridRef}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
-            gap: 8,
-            // Lights up only while something droppable is over this grid.
-            outline: over ? "1px dashed var(--accent)" : undefined,
-            outlineOffset: 5,
-            borderRadius: 6,
-          }}
-        >
-          {shown.map((entry, index) => {
-            // The pinned entry is not in the saved order, so there is nothing
-            // to take out of it and nothing to drag.
-            const pinned = entry === unlisted;
-            const press = pinned
-              ? undefined
-              : (event: React.PointerEvent) => beginPress(event, index);
+      {/* The drop zone is the field entire — label, tiles and the line telling
+          you to drop here — so the highlight surrounds exactly what will
+          accept a file. */}
+      <div
+        ref={dropRef}
+        style={{
+          // Lights up only while something droppable is over this picker.
+          outline: over ? "1px dashed var(--accent)" : undefined,
+          outlineOffset: 3,
+          borderRadius: 6,
+        }}
+      >
+        <Field label={t("style.media")} hint={t("style.mediaDropHint")}>
+          <div
+            ref={gridRef}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))",
+              gap: 8,
+            }}
+          >
+            {shown.map((entry, index) => {
+              // The pinned entry is not in the saved order, so there is nothing
+              // to take out of it and nothing to drag.
+              const pinned = entry === unlisted;
+              const press = pinned
+                ? undefined
+                : (event: React.PointerEvent) => beginPress(event, index);
 
-            if (isColorEntry(entry)) {
+              if (isColorEntry(entry)) {
+                return (
+                  <Tile
+                    key={entry}
+                    color={entry}
+                    selected={isCurrent(entry)}
+                    dragging={reordering === index}
+                    onPointerDown={press}
+                    onClick={() => useColor(entry)}
+                    onRemove={pinned ? undefined : () => removeColor(entry)}
+                    label={entry}
+                    menu={[
+                      {
+                        label: t("style.colorUse"),
+                        icon: "check",
+                        onSelect: () => useColor(entry),
+                      },
+                      {
+                        label: t("style.colorChange"),
+                        icon: "pencil",
+                        onSelect: () => editColor(entry),
+                      },
+                      "separator",
+                      pinned
+                        ? {
+                            label: t("style.colorSave"),
+                            icon: "plus",
+                            onSelect: () => saveOrder([...entries, entry]),
+                          }
+                        : {
+                            label: t("style.colorRemove"),
+                            icon: "trash",
+                            danger: true,
+                            onSelect: () => removeColor(entry),
+                          },
+                    ]}
+                  />
+                );
+              }
+
+              const item = items.find((candidate) => candidate.filename === entry);
+              if (!item) return null;
               return (
                 <Tile
-                  key={entry}
-                  color={entry}
-                  selected={isCurrent(entry)}
+                  key={item.filename}
+                  item={item}
+                  selected={backdrop.media === item.filename}
                   dragging={reordering === index}
                   onPointerDown={press}
-                  onClick={() => useColor(entry)}
-                  onRemove={pinned ? undefined : () => removeColor(entry)}
-                  label={entry}
+                  onClick={() => onChange({ media: item.filename })}
+                  onRemove={() => void remove(item)}
+                  label={item.filename}
                   menu={[
-                    { label: t("style.colorUse"), icon: "check", onSelect: () => useColor(entry) },
                     {
-                      label: t("style.colorChange"),
-                      icon: "pencil",
-                      onSelect: () => editColor(entry),
+                      label: t("style.mediaNone"),
+                      icon: "x",
+                      onSelect: () => onChange({ media: null }),
                     },
                     "separator",
-                    pinned
-                      ? {
-                          label: t("style.colorSave"),
-                          icon: "plus",
-                          onSelect: () => saveOrder([...entries, entry]),
-                        }
-                      : {
-                          label: t("style.colorRemove"),
-                          icon: "trash",
-                          danger: true,
-                          onSelect: () => removeColor(entry),
-                        },
+                    {
+                      label: t("menu.deleteFile"),
+                      icon: "trash",
+                      danger: true,
+                      onSelect: () => void remove(item),
+                    },
                   ]}
                 />
               );
-            }
+            })}
 
-            const item = items.find((candidate) => candidate.filename === entry);
-            if (!item) return null;
-            return (
-              <Tile
-                key={item.filename}
-                item={item}
-                selected={backdrop.media === item.filename}
-                dragging={reordering === index}
-                onPointerDown={press}
-                onClick={() => onChange({ media: item.filename })}
-                onRemove={() => void remove(item)}
-                label={item.filename}
-                menu={[
+            {/* Last in the grid, as on the Slides tab. */}
+            <button
+              className="tile tile--add"
+              style={{ aspectRatio: "16 / 9" }}
+              disabled={busy}
+              title={t("style.mediaAdd")}
+              onClick={(event) =>
+                openMenu(event, [
                   {
-                    label: t("style.mediaNone"),
-                    icon: "x",
-                    onSelect: () => onChange({ media: null }),
+                    label: t("style.addFile"),
+                    icon: "folder",
+                    onSelect: () => void add(),
                   },
-                  "separator",
-                  {
-                    label: t("menu.deleteFile"),
-                    icon: "trash",
-                    danger: true,
-                    onSelect: () => void remove(item),
-                  },
-                ]}
-              />
-            );
-          })}
-
-          {/* Last in the grid, as on the Slides tab. */}
-          <button
-            className="tile tile--add"
-            style={{ aspectRatio: "16 / 9" }}
-            disabled={busy}
-            title={t("style.mediaAdd")}
-            onClick={(event) =>
-              openMenu(event, [
-                { label: t("style.addFile"), icon: "folder", onSelect: () => void add() },
-                { label: t("style.addColor"), onSelect: addColor },
-              ])
-            }
-          >
-            <Icon name="plus" size={14} />
-          </button>
-
-        </div>
-      </Field>
+                  { label: t("style.addColor"), onSelect: addColor },
+                ])
+              }
+            >
+              <Icon name="plus" size={14} />
+            </button>
+          </div>
+        </Field>
+      </div>
 
       {backdrop.media && (
         <>
@@ -468,7 +507,13 @@ function Tile({
           className="btn btn--icon btn--sm btn--danger"
           onClick={onRemove}
           title={label}
-          style={{ position: "absolute", top: 3, right: 3, padding: 2, minWidth: 0 }}
+          style={{
+            position: "absolute",
+            top: 3,
+            right: 3,
+            padding: 2,
+            minWidth: 0,
+          }}
         >
           <Icon name="x" size={10} />
         </button>

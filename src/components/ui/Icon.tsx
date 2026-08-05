@@ -28,6 +28,8 @@ const PATHS: Record<string, string> = {
   play: "M6 3l14 9-14 9V3Z",
   pause: "M6 4h4v16H6z M14 4h4v16h-4z",
   clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 6v6l4 2",
+  volume: "M11 5 6 9H2v6h4l5 4V5Z M15.5 8.5a5 5 0 0 1 0 7 M18.5 5.5a9 9 0 0 1 0 13",
+  volumeOff: "M11 5 6 9H2v6h4l5 4V5Z M22 9l-6 6 M16 9l6 6",
   arrowUp: "M12 19V5 M5 12l7-7 7 7",
   arrowDown: "M12 5v14 M19 12l-7 7-7-7",
 };

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useStore } from "../app/store";
-import type { DisplayInfo, WebScreenStatus } from "../api/types";
+import type { DisplayConfig, DisplayInfo, WebScreenStatus } from "../api/types";
 
 /**
  * Every screen the operator can send output to, plugged in or not.
@@ -28,8 +28,22 @@ export interface ScreenTarget {
  */
 export const WEB_SIZE = { width: 1920, height: 1080 };
 
+/**
+ * What to call a screen: the operator's name for it, or the system's.
+ *
+ * The custom name is stored rather than copied over the system one, so a
+ * monitor nobody has renamed keeps following whatever the OS reports it as.
+ */
+export function screenName(
+  configs: Record<string, DisplayConfig>,
+  display: { id: string; name: string },
+): string {
+  return configs[display.id]?.name?.trim() || display.name;
+}
+
 export function useScreenTargets(): ScreenTarget[] {
   const displays = useStore((s) => s.displays);
+  const configs = useStore((s) => s.settings.displays);
   const webScreens = useStore((s) => s.settings.webScreens);
   const webStatus = useStore((s) => s.webScreens);
 
@@ -37,7 +51,10 @@ export function useScreenTargets(): ScreenTarget[] {
     () => [
       ...displays.map((item) => ({
         id: item.id,
-        name: item.name,
+        // Resolved here rather than at each call site, so the Displays tab,
+        // both preview pickers and the layout editor cannot disagree about
+        // what a screen is called.
+        name: screenName(configs, item),
         width: item.width,
         height: item.height,
         isPrimary: item.isPrimary,
@@ -58,14 +75,18 @@ export function useScreenTargets(): ScreenTarget[] {
         },
       })),
     ],
-    [displays, webScreens, webStatus],
+    [displays, configs, webScreens, webStatus],
   );
 }
 
 /** What `PreviewCard` needs, for a screen that is not a monitor. */
 export function asDisplayInfo(target: ScreenTarget): DisplayInfo {
+  // The target's name, not the monitor's: the monitor still carries whatever
+  // the system called it, and returning that would undo a rename everywhere a
+  // preview card puts a label on a screen.
+  if (target.monitor) return { ...target.monitor, name: target.name };
   return (
-    target.monitor ?? {
+    {
       id: target.id,
       index: 0,
       name: target.name,

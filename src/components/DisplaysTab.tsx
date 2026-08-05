@@ -173,23 +173,40 @@ export function DisplaysTab() {
                         icon: "monitor",
                         onSelect: () => void api.openTestWindow(item.id).catch(reportError),
                       },
+                      "separator",
+                      {
+                        // One entry for both kinds of screen: a monitor stores
+                        // its label in its display config, a web screen in its
+                        // own record, but the operator is doing the same thing.
+                        label: t("displays.rename"),
+                        icon: "pencil",
+                        onSelect: () =>
+                          void dialogs
+                            .prompt({
+                              title: t("displays.rename"),
+                              label: t("common.name"),
+                              value: item.name,
+                            })
+                            .then((name) => {
+                              if (!name) return;
+                              if (item.web) void updateWebScreen(item.id, { name });
+                              else void patchDisplay(item.id, { name });
+                            }),
+                      },
+                      // Only worth offering once there is something to undo —
+                      // and only for a monitor, which is the one that has a
+                      // name of its own to fall back to.
+                      ...(!item.web && itemConfig?.name?.trim()
+                        ? ([
+                            {
+                              label: t("displays.useSystemName"),
+                              icon: "refresh",
+                              onSelect: () => void patchDisplay(item.id, { name: "" }),
+                            },
+                          ] as const)
+                        : []),
                       ...(item.web
                         ? ([
-                            "separator",
-                            {
-                              label: t("web.rename"),
-                              icon: "pencil",
-                              onSelect: () =>
-                                void dialogs
-                                  .prompt({
-                                    title: t("web.rename"),
-                                    label: t("common.name"),
-                                    value: item.name,
-                                  })
-                                  .then((name) => {
-                                    if (name) void updateWebScreen(item.id, { name });
-                                  }),
-                            },
                             {
                               label: t("web.remove"),
                               icon: "trash",

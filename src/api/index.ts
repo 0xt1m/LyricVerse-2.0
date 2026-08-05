@@ -71,6 +71,8 @@ export const api = {
   renameTrack: (id: string, name: string) => invoke<void>("rename_track", { id, name }),
   setTrackLooping: (id: string, looping: boolean) =>
     invoke<void>("set_track_looping", { id, looping }),
+  setTrackVolume: (id: string, volume: number) =>
+    invoke<void>("set_track_volume", { id, volume }),
   deleteTrack: (id: string, deleteFile: boolean) =>
     invoke<void>("delete_track", { id, deleteFile }),
   supportedAudioExtensions: () => invoke<string[]>("supported_audio_extensions"),

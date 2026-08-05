@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useStore, type Tab } from "./store";
 import { BibleTab } from "../components/BibleTab";
 import { DisplaysTab } from "../components/DisplaysTab";
@@ -9,11 +9,11 @@ import { TimerTab } from "../components/TimerTab";
 import { VideoTab } from "../components/VideoTab";
 import { AudioTab } from "../components/AudioTab";
 import { AudioEngine } from "../components/AudioEngine";
-import { presetFor } from "../api/types";
-import { PreviewCard } from "../components/Preview";
-import { asDisplayInfo, useScreenTargets } from "../lib/screens";
+import { ScreenPreview } from "../components/Preview";
+import { SidePanel } from "../components/SidePanel";
+import { screenName } from "../lib/screens";
 import { mediaSrc } from "../api/net";
-import { formatTime, playbackPosition, useScrub } from "../lib/playback";
+import { formatTime, percent, playbackPosition, useScrub } from "../lib/playback";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { useContextMenu } from "../components/ui/ContextMenu";
 import {
@@ -73,6 +73,13 @@ export function App() {
     );
   }
 
+  // The side panel is for driving a service. Wiring up a projector or working
+  // through the settings is not that, and both of those tabs would rather have
+  // the room.
+  const onContentTab = CONTENT_TABS.some((entry) => entry.id === tab);
+  const sidePanel = settings.showSidePanel && onContentTab;
+  const bottomDock = settings.sidePanelPlacement === "bottom";
+
   // Rows are built from what is actually shown, so a hidden section gives its
   // height back to the tab rather than leaving a gap behind. The foot is only
   // as tall as what is left in it: a strip on its own needs no room for a
@@ -87,10 +94,28 @@ export function App() {
     .join(" ");
 
   return (
-    <div className="app" style={{ gridTemplateRows: rows }}>
+    <div
+      className="app"
+      // The foot's real height, published for anything that has to sit clear
+      // of it — the toasts do, and only the shell knows whether the row was
+      // built at all.
+      style={{ gridTemplateRows: rows, "--foot-h": foot ?? "0px" } as CSSProperties}
+    >
       <TopBar />
       {settings.showStatusBar && <StatusBar />}
-      <div className="app__body">
+      <div
+        className="app__body"
+        data-side={sidePanel ? (bottomDock ? "bottom" : "right") : undefined}
+        // The dragged size, per edge. Only the docked one is published, so a
+        // half-finished drag on one edge cannot resize the other.
+        style={
+          {
+            [bottomDock ? "--side-h" : "--side-w"]: `${
+              bottomDock ? settings.sidePanelHeight : settings.sidePanelWidth
+            }px`,
+          } as CSSProperties
+        }
+      >
         <Rail />
         {tab === "songs" && <SongsTab />}
         {tab === "bible" && <BibleTab />}
@@ -100,6 +125,7 @@ export function App() {
         {tab === "timer" && <TimerTab />}
         {tab === "displays" && <DisplaysTab />}
         {tab === "settings" && <SettingsTab />}
+        {sidePanel && <SidePanel />}
       </div>
       {foot && <Transport />}
       {/* No UI of its own: the player that keeps going between tabs. */}
@@ -136,13 +162,14 @@ function TopBar() {
         if (!config) return null;
         // The console's own screen is shown for orientation but cannot be
         // toggled — output never goes there.
+        const name = screenName(settings.displays, display);
         if (display.isPrimary) {
           return (
             <button
               key={display.id}
               className="chip"
               style={{ opacity: 0.55, cursor: "default" }}
-              title={`${display.name} — ${t("displays.primaryLocked")}`}
+              title={`${name} — ${t("displays.primaryLocked")}`}
               onClick={() => setTab("displays")}
             >
               <span className="chip__dot" />
@@ -155,7 +182,7 @@ function TopBar() {
             key={display.id}
             className="chip"
             data-active={config.enabled}
-            title={`${display.name} · ${display.width}×${display.height}`}
+            title={`${name} · ${display.width}×${display.height}`}
             onDoubleClick={() => setTab("displays")}
             onClick={() => void patchDisplay(display.id, { enabled: !config.enabled })}
           >
@@ -203,6 +230,24 @@ function ViewMenu() {
             checked: settings.showFilmstrip,
             onSelect: () => void patchSettings({ showFilmstrip: !settings.showFilmstrip }),
           },
+          {
+            label: t("view.sidePanel"),
+            checked: settings.showSidePanel,
+            onSelect: () => void patchSettings({ showSidePanel: !settings.showSidePanel }),
+          },
+          // Which edge it docks to. Ticks rather than a submenu, and picking
+          // the one already set is a no-op — this is a choice between two
+          // places, not a third switch that can turn the panel off.
+          {
+            label: t("view.sidePanelRight"),
+            checked: settings.sidePanelPlacement !== "bottom",
+            onSelect: () => void patchSettings({ sidePanelPlacement: "right" }),
+          },
+          {
+            label: t("view.sidePanelBottom"),
+            checked: settings.sidePanelPlacement === "bottom",
+            onSelect: () => void patchSettings({ sidePanelPlacement: "bottom" }),
+          },
         ])
       }
     >
@@ -234,10 +279,13 @@ function VideoTransport() {
   const live = useStore((s) => s.live);
   const playback = useStore((s) => s.playback);
   const patchPlayback = useStore((s) => s.patchPlayback);
+  const blank = useStore((s) => s.toggleBlank);
   const isVideo = live.kind === "video";
   const now = useNow(isVideo && playback.playing);
   const [duration, setDuration] = useState(0);
-  const scrub = useScrub(playbackPosition(playback, now), (positionMs) =>
+  // `duration` feeds the position so a looping clip's readout wraps with the
+  // clip instead of counting on past its own end.
+  const scrub = useScrub(playbackPosition(playback, now, duration), (positionMs) =>
     void patchPlayback({}, positionMs),
   );
 
@@ -260,29 +308,39 @@ function VideoTransport() {
   }, [isVideo, live.mediaPath]);
 
   if (!isVideo) return null;
-  const position = playbackPosition(playback, now);
+  const position = playbackPosition(playback, now, duration);
   // YouTube plays inside Google's own player, which does not report where it
   // is without loading their script — so that one gets the buttons, not a bar.
   const scrubbable = duration > 0 && !live.youtubeId;
+
+  // A clip that has run out is still `playing` as far as the transport state
+  // knows — nothing sends a message back when it reaches the end. So the end
+  // is worked out here, or the button would offer to pause a clip that has
+  // been sitting on its last frame for a minute.
+  const ended = duration > 0 && !playback.looping && position >= duration;
+  const running = playback.playing && !ended;
 
   return (
     <div className="timerbar">
       <button
         className="btn btn--sm btn--icon"
-        title={playback.playing ? t("media.pause") : t("media.play")}
-        onClick={() => void patchPlayback({ playing: !playback.playing })}
+        title={running ? t("media.pause") : t("media.play")}
+        // Pressing play on a finished clip starts it again from the top, which
+        // is the only thing that press could sensibly mean.
+        onClick={() => void patchPlayback({ playing: !running }, ended ? 0 : undefined)}
       >
-        <Icon name={playback.playing ? "pause" : "play"} size={13} />
+        <Icon name={running ? "pause" : "play"} size={13} />
       </button>
 
       {scrubbable ? (
         <>
           <input
-            className="timerbar__scrub"
+            className="scrub timerbar__scrub"
             type="range"
             min={0}
             max={Math.round(duration)}
             value={Math.min(Math.round(scrub.value), Math.round(duration))}
+            style={{ "--played": `${percent(scrub.value, duration)}%` } as CSSProperties}
             onChange={(event) => scrub.onChange(Number(event.target.value))}
             onKeyUp={scrub.onKeyUp}
           />
@@ -308,50 +366,79 @@ function VideoTransport() {
         title={t("media.mute")}
         onClick={() => void patchPlayback({ muted: !playback.muted })}
       >
-        <Icon name={playback.muted ? "eyeOff" : "music"} size={12} />
+        <Icon name={playback.muted ? "volumeOff" : "volume"} size={12} />
+      </button>
+      {/* The same cross the audio transport ends with, and the same meaning:
+          done with this, take it away. For a clip that is the screen going
+          blank — pausing would leave the last frame standing in the room. */}
+      <button className="btn btn--sm btn--icon" title={t("media.stop")} onClick={() => void blank()}>
+        <Icon name="x" size={12} />
       </button>
     </div>
   );
 }
 
+/**
+ * Audio in the title bar.
+ *
+ * Several tracks can be sounding at once, and a row of full transports would
+ * take the whole bar — so this shows the one most recently started, says how
+ * many others are behind it, and its stop button stops the lot. Riding levels
+ * against each other is the mixer's job, on the tab; this is the panic button
+ * and the glance.
+ */
 function AudioTransport() {
   const t = useStore((s) => s.t);
   const setTab = useStore((s) => s.setTab);
-  const track = useStore((s) => s.audioTrack);
-  const playing = useStore((s) => s.audioPlaying);
-  const positionMs = useStore((s) => s.audioPositionMs);
-  const durationMs = useStore((s) => s.audioDurationMs);
-  const toggleAudio = useStore((s) => s.toggleAudio);
-  const stopAudio = useStore((s) => s.stopAudio);
-  const seekAudio = useStore((s) => s.seekAudio);
-  const scrub = useScrub(positionMs, seekAudio);
+  const players = useStore((s) => s.audioPlayers);
+  const toggleTrack = useStore((s) => s.toggleTrack);
+  const stopAllAudio = useStore((s) => s.stopAllAudio);
+  const seekTrack = useStore((s) => s.seekTrack);
+  const newest = players[players.length - 1] ?? null;
+  const scrub = useScrub(newest?.positionMs ?? 0, (ms) => {
+    if (newest) seekTrack(newest.track.id, ms);
+  });
 
-  if (!track) return null;
+  if (!newest) return null;
+  const durationMs = newest.durationMs;
 
   return (
     <div className="timerbar">
       <button
         className="btn btn--sm btn--icon"
-        title={playing ? t("audio.pause") : t("audio.play")}
-        onClick={toggleAudio}
+        title={newest.playing ? t("audio.pause") : t("audio.play")}
+        onClick={() => toggleTrack(newest.track.id)}
       >
-        <Icon name={playing ? "pause" : "play"} size={13} />
+        <Icon name={newest.playing ? "pause" : "play"} size={13} />
       </button>
       <button
         className="timerbar__label"
-        title={track.name}
+        title={newest.track.name}
         onClick={() => setTab("audio")}
         style={{ all: "unset", cursor: "pointer", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}
       >
-        {track.name}
+        {newest.track.name}
       </button>
+      {/* Only when there is something hidden behind it — a lone track needs no
+          count, and the bar is short of room as it is. */}
+      {players.length > 1 && (
+        <button
+          className="chip"
+          title={t("audio.mixer")}
+          onClick={() => setTab("audio")}
+          style={{ fontSize: 11 }}
+        >
+          +{players.length - 1}
+        </button>
+      )}
       {durationMs > 0 && (
         <input
-          className="timerbar__scrub"
+          className="scrub timerbar__scrub"
           type="range"
           min={0}
           max={Math.round(durationMs)}
           value={Math.min(Math.round(scrub.value), Math.round(durationMs))}
+          style={{ "--played": `${percent(scrub.value, durationMs)}%` } as CSSProperties}
           onChange={(event) => scrub.onChange(Number(event.target.value))}
           onKeyUp={scrub.onKeyUp}
         />
@@ -359,7 +446,11 @@ function AudioTransport() {
       <span className="timerbar__value" style={{ fontSize: 12 }}>
         {formatTime(scrub.value)}
       </span>
-      <button className="btn btn--sm btn--icon" title={t("audio.stop")} onClick={stopAudio}>
+      <button
+        className="btn btn--sm btn--icon"
+        title={players.length > 1 ? t("audio.stopAll") : t("audio.stop")}
+        onClick={stopAllAudio}
+      >
         <Icon name="x" size={12} />
       </button>
     </div>
@@ -606,63 +697,14 @@ function Transport() {
  * the operator is normally watching a single output.
  */
 function TransportPreview() {
-  const t = useStore((s) => s.t);
-  // Every screen, cabled or served over the network — a web screen is exactly
-  // as previewable as a projector, and is often the one nobody can see.
-  const screens = useScreenTargets();
-  const settings = useStore((s) => s.settings);
-  const live = useStore((s) => s.live);
-  const timer = useStore((s) => s.timer);
   const chosen = useStore((s) => s.previewDisplayId);
   const setPreviewDisplay = useStore((s) => s.setPreviewDisplay);
-
-  // Every screen can be previewed, including the console's own. Refusing to
-  // project onto it is about not covering the operator's workspace; looking
-  // at what its preset produces is harmless — and on a one-screen machine it
-  // is the only preview there is.
-  const projecting = (display: { id: string; isPrimary: boolean }) =>
-    !display.isPrimary && !!settings.displays[display.id]?.enabled;
-
-  const screen =
-    screens.find((item) => item.id === chosen) ??
-    screens.find(projecting) ??
-    screens[0] ??
-    null;
-  const display = screen ? asDisplayInfo(screen) : null;
-  const preset = screen ? presetFor(settings, screen.id) : null;
-
-  if (!screen || !display || !preset) {
-    return (
-      <div className="transport__preview transport__preview--empty" title={t("displays.noneHint")}>
-        <Icon name="eyeOff" size={14} />
-      </div>
-    );
-  }
-
   return (
-    <div className="transport__preview">
-      {/* Always rendered, even with a single screen — otherwise there is no
-          visible sign that the preview can be pointed somewhere else. */}
-      <select
-        className="select transport__preview-pick"
-        value={screen.id}
-        onChange={(event) => setPreviewDisplay(event.target.value)}
-        title={t("displays.preview")}
-      >
-        {screens.map((item) => (
-          <option key={item.id} value={item.id}>
-            {/* Says plainly when a screen is not actually projecting, so a
-                preview is never mistaken for live output. */}
-            {projecting(item) ? item.name : `${item.name} — ${t("displays.preview")}`}
-          </option>
-        ))}
-      </select>
-      <PreviewCard display={display} preset={preset} live={live} timer={timer} showName={false} />
-      <div className="transport__caption" data-live={live.kind !== "blank"}>
-        <span className="chip__dot" />
-        {live.kind !== "blank" ? t("transport.live") : t("transport.blank")}
-      </div>
-    </div>
+    <ScreenPreview
+      chosen={chosen}
+      onPick={setPreviewDisplay}
+      className="transport__preview"
+    />
   );
 }
 
@@ -756,6 +798,7 @@ function useGlobalShortcuts() {
   const step = useStore((s) => s.step);
   const toggleBlank = useStore((s) => s.toggleBlank);
   const setTab = useStore((s) => s.setTab);
+  const toggleAllMedia = useStore((s) => s.toggleAllMedia);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -781,7 +824,15 @@ function useGlobalShortcuts() {
       if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
 
       switch (event.key) {
+        // Space starts and stops whatever is playing — a clip, a track,
+        // several tracks — before it does anything else. With no media in
+        // hand at all it keeps its usual job of moving the service on, so the
+        // key nobody has to look for still advances a song.
         case " ":
+          event.preventDefault();
+          if (toggleAllMedia()) break;
+          void step(1);
+          break;
         case "ArrowRight":
         case "ArrowDown":
         case "PageDown":
@@ -805,5 +856,5 @@ function useGlobalShortcuts() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [step, toggleBlank, setTab]);
+  }, [step, toggleBlank, setTab, toggleAllMedia]);
 }

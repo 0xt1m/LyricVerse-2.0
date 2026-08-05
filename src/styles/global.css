@@ -52,6 +52,9 @@
   --strip-h: 98px;
   /* Wide enough for the longest tab label ("Налаштування") without clipping. */
   --rail-w: 100px;
+  /* Enough for a readable 16:9 preview and a history row that still has room
+     for a title after its thumbnail and clock. */
+  --side-w: 268px;
 
   color-scheme: dark;
 }
@@ -148,6 +151,28 @@ button {
   grid-template-columns: var(--rail-w) minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
+}
+
+/* The panel is only on the content tabs, so its track is only there when it is
+   — the setup tabs get the full window back. */
+.app__body[data-side="right"] {
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--side-w);
+}
+
+/* Docked to the bottom the rail still runs the full height — it is the app's
+   spine, not the tab's — so it spans both rows and the panel takes the second
+   one beside it. */
+.app__body[data-side="bottom"] {
+  grid-template-rows: minmax(0, 1fr) var(--side-h);
+}
+
+.app__body[data-side="bottom"] > .rail {
+  grid-row: 1 / -1;
+}
+
+.app__body[data-side="bottom"] > .sidepanel {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .topbar {
@@ -965,32 +990,41 @@ button {
   border-top: 1px solid var(--border);
 }
 
-/* --- Preview in the transport bar ---------------------------------------- */
+/* --- Pickable screen preview --------------------------------------------- */
+/* Shared by the transport bar and the side panel; each call site brings its
+   own width. */
 
-.transport__preview {
+.preview__pane {
   display: grid;
   gap: 7px;
   justify-items: center;
   align-content: start;
-  width: 208px;
-  flex: none;
+  min-width: 0;
 }
 
-.transport__preview .preview__card {
+.preview__pane .preview__card {
   width: 100%;
 }
 
-.transport__preview--empty {
-  height: 117px;
-  width: 208px;
+.preview__pane--empty {
   display: grid;
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text-faint);
   place-content: center;
+  min-height: 84px;
 }
 
-.transport__caption {
+.transport__preview {
+  width: 208px;
+  flex: none;
+}
+
+.transport__preview.preview__pane--empty {
+  height: 117px;
+}
+
+.preview__caption {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1002,29 +1036,20 @@ button {
   text-overflow: ellipsis;
 }
 
-.transport__caption[data-live] {
+.preview__caption[data-live] {
   color: var(--live);
 }
 
-.transport__caption[data-live] .chip__dot {
+.preview__caption[data-live] .chip__dot {
   background: currentColor;
 }
 
-.transport__preview-pick {
+.preview__pick {
   width: 100%;
   padding: 3px 22px 3px 7px;
   font-size: 11.5px;
   background-position: calc(100% - 12px) 10px, calc(100% - 8px) 10px;
   background-size: 4px 4px;
-}
-
-.transport__preview-name {
-  font-size: 11px;
-  color: var(--text-faint);
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .transport__status {
@@ -1210,7 +1235,11 @@ button {
 
 .toasts {
   position: fixed;
-  bottom: calc(var(--footer-h) + 14px);
+  /* Just above the transport, or in the corner proper when there is no
+     transport to clear. `--foot-h` is set by the shell from the row it
+     actually built; the static `--footer-h` would leave messages stranded
+     mid-window whenever the preview and strip were both put away. */
+  bottom: calc(var(--foot-h, 0px) + 14px);
   right: 14px;
   display: grid;
   gap: 8px;
@@ -1556,6 +1585,20 @@ button {
   color: var(--live);
 }
 
+/* The position readout on the audio and video transports.
+ *
+ * A clock counting up in proportional digits re-measures the bar every second,
+ * and the whole top row shuffles with it. Fixed-width digits plus room for
+ * `m:ss` held open from the start settle it: a track only changes the readout's
+ * length when it crosses ten minutes, rather than on every tick. */
+.timerbar__value {
+  font-variant-numeric: tabular-nums;
+  /* `ch` is the width of a digit, which is exactly what is being reserved. */
+  min-width: 4.6ch;
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* Typing a new length straight into the readout, same metrics so the bar
    does not jump when editing starts. */
 .timerbar__input {
@@ -1706,11 +1749,22 @@ button {
   aspect-ratio: 16 / 10;
   text-align: center;
   color: var(--text-faint);
+  /* This tile sits inside a wrapper that carries the loop and delete buttons,
+     so the wrapper — not the tile — is the grid item. Left to itself a button
+     shrinks to its content, which would size the tile to its own text: smaller
+     than the add tile beside it, and a width that twitched every second as the
+     elapsed time ticked. Fill the wrapper and the column decides instead. */
+  width: 100%;
 }
 
 .tile--audio .track__name {
   color: var(--text);
   max-width: 100%;
+}
+
+/* Digits of one width, so the clock does not shuffle as it counts. */
+.tile--audio .field__hint {
+  font-variant-numeric: tabular-nums;
 }
 
 .tile--audio[data-live] {
@@ -1745,11 +1799,71 @@ button {
 }
 
 /* The scrub bar in the title bar, sized to sit in a 52px row. */
-.timerbar__scrub {
-  width: 108px;
-  height: 4px;
-  accent-color: var(--accent);
+/* --- Scrubbers ------------------------------------------------------------ */
+
+/* A range input stripped back to nothing and rebuilt, because the stock one is
+   a grey pill with a fat grey knob that says nothing about how far through the
+   clip is. Still an <input type="range">, so the arrow keys and the screen
+   reader keep working — only the paint is ours.
+ *
+ * `--played` is the fraction elapsed, set inline by whichever transport owns
+ * the slider; the track paints itself from it, so there is no second element
+ * to keep in step. */
+.scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  /* Taller than the track it draws: the whole strip is the grab target, and a
+     4px one is a fight. */
+  height: 14px;
+  background: transparent;
   cursor: pointer;
+}
+
+.scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--played, 0%),
+    var(--border-strong) var(--played, 0%)
+  );
+}
+
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  /* Half the thumb's overhang, to centre it on a 4px track. */
+  margin-top: -3px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  transition: transform 0.12s, background 0.12s;
+}
+
+.scrub:hover::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+
+.scrub:active::-webkit-slider-thumb {
+  background: var(--accent);
+  transform: scale(1.2);
+}
+
+/* The thumb carries the focus ring; the input's own would box the whole strip
+   including the transparent padding. */
+.scrub:focus-visible {
+  outline: none;
+}
+
+.scrub:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.timerbar__scrub {
+  width: 116px;
 }
 
 /* --- Favourites ---------------------------------------------------------- */
@@ -1792,4 +1906,452 @@ button {
 
 .row__star[data-on] {
   color: var(--accent);
+}
+
+/* --- Side panel ---------------------------------------------------------- */
+/* The right-hand column on the content tabs: what a screen is showing, and
+   what it has shown already. */
+
+.sidepanel {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.sidepanel[data-placement="right"] {
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+}
+
+/* Along the bottom the two sections sit side by side instead: a preview stacked
+   on a history would leave the panel tall and the history two rows deep. */
+.sidepanel[data-placement="bottom"] {
+  flex-direction: row;
+  border-top: 1px solid var(--border);
+}
+
+.sidepanel__section {
+  padding: 10px;
+  min-width: 0;
+}
+
+.sidepanel[data-placement="right"] > .sidepanel__section {
+  border-bottom: 1px solid var(--border);
+}
+
+.sidepanel[data-placement="bottom"] > .sidepanel__section {
+  border-right: 1px solid var(--border);
+}
+
+/* The history takes whatever the preview leaves. */
+.sidepanel__section--grow {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidepanel__preview {
+  width: 100%;
+}
+
+/* Docked at the bottom the preview is sized by the panel's height, so the card
+   is given a width to match rather than filling the row. */
+.sidepanel[data-placement="bottom"] .sidepanel__preview {
+  width: auto;
+  height: 100%;
+}
+
+.sidepanel[data-placement="bottom"] .sidepanel__preview .preview__card {
+  width: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.sidepanel[data-placement="bottom"] .sidepanel__preview .preview__frame {
+  height: 100%;
+  width: auto;
+}
+
+/* --- The draggable edge --------------------------------------------------- */
+/* Sits over the border, so what the operator reaches for is the line they can
+   already see. Wider than the border itself — a 1px target is a fight. */
+
+.sidepanel__grip {
+  position: absolute;
+  z-index: 3;
+  background: transparent;
+  transition: background 0.12s;
+}
+
+.sidepanel__grip:hover,
+.sidepanel__grip:active {
+  background: var(--accent-line);
+}
+
+.sidepanel[data-placement="right"] > .sidepanel__grip {
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.sidepanel[data-placement="bottom"] > .sidepanel__grip {
+  left: 0;
+  right: 0;
+  top: -3px;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.sidepanel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidepanel__empty {
+  padding: 18px 12px;
+  text-align: center;
+}
+
+.sidepanel__history {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.history__row {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 5px 6px;
+  display: grid;
+  /* Thumbnail, whatever is left, clock. The middle track is the one that
+     gives, so a long song title shortens rather than pushing the time out. */
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.history__row:hover {
+  background: var(--panel-raised);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* On screen right now, so the top of the list is never mistaken for something
+   already gone. */
+.history__row[data-live] {
+  border-color: var(--live);
+  background: var(--live-soft);
+  color: var(--text);
+}
+
+.history__thumb {
+  width: 44px;
+  aspect-ratio: 16 / 10;
+  border-radius: 4px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+
+.history__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* A slide with no picture shows its label instead — "Приспів", "3" — which is
+   what the operator was looking for anyway. Two lines rather than one: at this
+   width "Verse 1" on a single line ellipsises down to "VER…", which names
+   nothing. */
+.history__glyph {
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 0 2px;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.history__text {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.history__title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.history__part {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.history__title,
+.history__part {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__time {
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Video library -------------------------------------------------------- */
+
+/* A clip's tile is the clip: it plays where it sits, so there is no separate
+   preview panel to keep in step with the selection. Bigger than an audio tile
+   for that reason — a picture has to be big enough to tell one clip from
+   another. */
+.tiles--video {
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 12px;
+  /* Every row as tall as the tallest tile in it. A clip's tile is sized by its
+     picture plus a caption; the add tile has neither, so left alone it sits
+     short beside them and the row looks broken. */
+  grid-auto-rows: 1fr;
+}
+
+.tiles--video .tile--add {
+  /* Its own ratio would fight the row height it has just been given. */
+  aspect-ratio: auto;
+}
+
+.tile--video {
+  display: grid;
+  /* The picture takes its own ratio and the caption takes what it needs, so
+     unlike the other tiles this one has no aspect ratio of its own. */
+  grid-template-rows: auto auto;
+  aspect-ratio: auto;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  /* Not a button: the video's own controls live inside it. */
+  cursor: default;
+  width: 100%;
+}
+
+.tile--video[data-live] {
+  border-color: var(--live);
+  box-shadow: 0 0 0 1px var(--live-soft), 0 0 20px -6px var(--live);
+}
+
+.tile__media {
+  /* The loop and delete buttons sit over the picture, so this is what they
+     are positioned against. */
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--text-faint);
+}
+
+.tile__media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Contain, not cover: a clip in an odd ratio should look wrong here in the
+     same way it will look wrong on the screen. */
+  object-fit: contain;
+  background: #000;
+}
+
+.tile__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px 7px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.tile__foot .track__name {
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+}
+
+/* The transport over a clip playing in its own tile. Sits on a gradient rather
+   than a bar, so it stays legible over a bright frame without boxing the
+   picture in. */
+.tileplayer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 8px 6px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
+}
+
+.tileplayer__btn {
+  appearance: none;
+  border: 0;
+  padding: 3px;
+  border-radius: 4px;
+  background: transparent;
+  /* Over the picture, not over a panel — so plain white rather than the
+     app's text colour, which is tuned for a dark surface. */
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: none;
+}
+
+.tileplayer__btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tileplayer__scrub {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The unplayed part has to hold up against whatever frame is behind it, which
+   the panel-grey track cannot do over black. */
+.tileplayer__scrub::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--played, 0%),
+    rgba(255, 255, 255, 0.32) var(--played, 0%)
+  );
+}
+
+.tileplayer__time {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: #e6eaf1;
+  flex: none;
+}
+
+/* --- Audio mixer ---------------------------------------------------------- */
+/* One strip per sounding track, across the foot of the Audio tab. Only there
+   when something is playing — an empty desk is furniture. */
+
+.mixer {
+  flex: none;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  /* Several tracks at once is normal; a dozen is not, so the desk scrolls
+     rather than eating the library above it. */
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.mixer__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mixer__strips {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mixer__strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+}
+
+.mixer__name {
+  /* Wide enough to tell two songs apart, fixed so the faders below each other
+     line up into columns instead of stepping about. */
+  flex: none;
+  width: 150px;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer__scrub {
+  flex: 1;
+  min-width: 60px;
+}
+
+.mixer__time {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 8.4ch;
+  text-align: right;
+}
+
+.mixer__fader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--text-faint);
+}
+
+.mixer__volume {
+  width: 96px;
+}
+
+.mixer__level {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 3ch;
+  text-align: right;
 }

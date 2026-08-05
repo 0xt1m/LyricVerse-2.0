@@ -167,6 +167,14 @@ function WebDisplay() {
   // the digits here match the digits on the projector.
   const timer = frame.timer ? { ...frame.timer, anchorMs: frame.timer.anchorMs + skew } : null;
 
+  // The transport travels the same way and needs the same correction. Without
+  // it a clip on a tablet resolved its position against a clock that could be
+  // minutes from the console's, so the web screen played from somewhere else
+  // entirely — and re-seeked there every time the operator touched anything.
+  const playback = frame.playback
+    ? { ...frame.playback, anchorMs: frame.playback.anchorMs + skew }
+    : null;
+
   return (
     <Stage
       preset={preset}
@@ -174,7 +182,7 @@ function WebDisplay() {
       height={height}
       identify={null}
       timer={timer}
-      playback={frame.playback ?? null}
+      playback={playback}
     />
   );
 }

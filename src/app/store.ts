@@ -42,6 +42,43 @@ export interface Toast {
   tone: "info" | "error" | "success";
 }
 
+/**
+ * One track sounding right now.
+ *
+ * There can be several: a bed of music under a prayer while a sting fires over
+ * it is an ordinary thing to want, and v2 could only ever hold one — starting
+ * a second silently killed the first. Each has its own element, its own
+ * position and its own level.
+ */
+export interface AudioPlayer {
+  track: Track;
+  playing: boolean;
+  positionMs: number;
+  durationMs: number;
+  /** 0..1, live. Mirrors `track.volume`, which is where it is persisted. */
+  volume: number;
+  /** Bumped by `seekTrack`, so the element can tell a scrub from the position
+   *  it just reported itself. */
+  seekToken: number;
+}
+
+/**
+ * Something that went to the screens, kept so it can go there again.
+ *
+ * The deck is held by reference rather than copied: stepping through a song
+ * makes one entry per verse, and all of them point at the same deck object, so
+ * a long service costs a handful of integers rather than a hundred decks. It
+ * is also a snapshot — a song edited after it was sung replays as it was sung,
+ * which is what a record of the service should do.
+ */
+export interface HistoryEntry {
+  id: number;
+  deck: Deck;
+  index: number;
+  /** Wall-clock time it went out, for the list's right-hand column. */
+  at: number;
+}
+
 interface Store {
   ready: boolean;
   bootError: string | null;
@@ -65,19 +102,13 @@ interface Store {
   playback: Playback;
 
   /**
-   * The track playing in this window.
+   * The tracks sounding in this window, in the order they were started.
    *
    * Audio is the one thing that does not go to a screen: the machine running
    * the console is the one plugged into the desk, so it plays here and keeps
    * playing whichever tab the operator moves to.
    */
-  audioTrack: Track | null;
-  audioPlaying: boolean;
-  audioPositionMs: number;
-  audioDurationMs: number;
-  /** Bumped by `seekAudio`, so the element can tell a scrub from the position
-   *  it just reported itself. */
-  audioSeekToken: number;
+  audioPlayers: AudioPlayer[];
 
   /** What the operator has queued, from whichever tab loaded it. */
   deck: Deck | null;
@@ -92,6 +123,17 @@ interface Store {
   /** Which screen the footer preview shows; null follows the first enabled. */
   previewDisplayId: string | null;
   setPreviewDisplay: (id: string | null) => void;
+  /** The same, for the side panel. Kept apart from the footer's so that with
+   *  both on show they can watch two different screens. */
+  sidePreviewDisplayId: string | null;
+  setSidePreviewDisplay: (id: string | null) => void;
+
+  /** Everything shown this session, newest first. */
+  history: HistoryEntry[];
+  /** Puts a past slide back on screen, bringing its deck back if it has been
+   *  replaced since. */
+  replayHistory: (id: number) => Promise<void>;
+  clearHistory: () => void;
 
   t: (key: string, values?: Record<string, string | number>) => string;
 
@@ -110,12 +152,25 @@ interface Store {
   patchPreset: (id: string, patch: Partial<Preset>) => Promise<void>;
   setPresets: (presets: Preset[]) => Promise<void>;
   patchPlayback: (patch: Partial<Playback>, positionMs?: number) => Promise<void>;
-  playTrack: (track: Track | null) => void;
-  toggleAudio: () => void;
-  stopAudio: () => void;
-  seekAudio: (ms: number) => void;
-  /** Reported by the audio element as it plays. */
-  reportAudio: (positionMs: number, durationMs: number) => void;
+  /** Starts a track, from the top, alongside anything already sounding. */
+  playTrack: (track: Track) => void;
+  toggleTrack: (id: string) => void;
+  stopTrack: (id: string) => void;
+  /** Everything at once — the panic button in the title bar. */
+  stopAllAudio: () => void;
+  seekTrack: (id: string, ms: number) => void;
+  /** Sets a level live and remembers it against the track. */
+  setTrackVolume: (id: string, volume: number) => void;
+  /** Reported by a track's element as it plays. */
+  reportAudio: (id: string, positionMs: number, durationMs: number) => void;
+  /**
+   * Stops everything sounding or moving — tracks and the clip on screen alike
+   * — or sets it all going again if it is already stopped.
+   *
+   * Returns whether there was anything to act on, so a key bound to this can
+   * fall through to its other job when there was not.
+   */
+  toggleAllMedia: () => boolean;
   updateTimer: (timer: Timer | null) => Promise<void>;
   refreshDisplays: () => Promise<void>;
   refreshLibrary: () => Promise<void>;
@@ -138,6 +193,10 @@ const EMPTY_SETTINGS: Settings = {
   showStatusBar: true,
   showPreview: true,
   showFilmstrip: true,
+  showSidePanel: true,
+  sidePanelPlacement: "right",
+  sidePanelWidth: 268,
+  sidePanelHeight: 208,
   webScreens: [],
   backgroundOrder: [],
   audioDeviceId: "",
@@ -173,7 +232,53 @@ const EMPTY_LIVE: LiveState = {
   revision: 0,
 };
 
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
+// --- Debounced track levels -------------------------------------------------
+// Riding a fader writes the manifest once the hand stops, not sixty times a
+// second on the way there. Keyed by track, so two faders moved together each
+// land their own final value.
+
+const VOLUME_SAVE_MS = 260;
+const volumeTimers = new Map<string, number>();
+
+function scheduleVolumeSave(id: string, volume: number, get: () => Store) {
+  const pending = volumeTimers.get(id);
+  if (pending !== undefined) window.clearTimeout(pending);
+  volumeTimers.set(
+    id,
+    window.setTimeout(() => {
+      volumeTimers.delete(id);
+      api.setTrackVolume(id, volume).catch((error) => get().reportError(error));
+    }, VOLUME_SAVE_MS),
+  );
+}
+
 let toastSeq = 0;
+
+// --- Show history ----------------------------------------------------------
+
+let historySeq = 0;
+
+/** Long enough to cover any service, short enough never to be thought about. */
+const HISTORY_LIMIT = 250;
+
+/**
+ * Records what has just gone out.
+ *
+ * Called from `go` once the screens have taken it, so a failed send leaves no
+ * trace of something the room never saw.
+ */
+function remember(deck: Deck, index: number) {
+  useStore.setState((state) => {
+    const newest = state.history[0];
+    // Showing again what is already at the top — coming back from a blank, or
+    // a second press on the slide already up — is not a new event.
+    if (newest && newest.deck.key === deck.key && newest.index === index) return {};
+    const entry: HistoryEntry = { id: ++historySeq, deck, index, at: Date.now() };
+    return { history: [entry, ...state.history].slice(0, HISTORY_LIMIT) };
+  });
+}
 
 // --- Debounced settings persistence ---------------------------------------
 // Writing on every pointer-move would mean ~60 disk writes and 60 window
@@ -236,11 +341,7 @@ export const useStore = create<Store>((set, get) => ({
   defaults: null,
   timer: null,
   playback: IDLE_PLAYBACK,
-  audioTrack: null,
-  audioPlaying: false,
-  audioPositionMs: 0,
-  audioDurationMs: 0,
-  audioSeekToken: 0,
+  audioPlayers: [],
 
   deck: null,
   cursor: 0,
@@ -248,6 +349,8 @@ export const useStore = create<Store>((set, get) => ({
   blanked: false,
   libraryRevision: 0,
   previewDisplayId: null,
+  sidePreviewDisplayId: null,
+  history: [],
 
   t: (key, values) => translate(get().settings.language, key, values),
 
@@ -291,6 +394,8 @@ export const useStore = create<Store>((set, get) => ({
   setTab: (tab) => set({ tab }),
 
   setPreviewDisplay: (previewDisplayId) => set({ previewDisplayId }),
+
+  setSidePreviewDisplay: (sidePreviewDisplayId) => set({ sidePreviewDisplayId }),
 
   toast(message, tone = "info") {
     const id = ++toastSeq;
@@ -368,22 +473,100 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   playTrack(track) {
-    // Choosing a track always starts it from the beginning: picking one off
-    // the list is an instruction to play it, not merely to select it.
-    set({ audioTrack: track, audioPlaying: !!track, audioPositionMs: 0, audioDurationMs: 0 });
+    set((state) => {
+      const existing = state.audioPlayers.find((player) => player.track.id === track.id);
+      // Choosing a track always starts it from the beginning: picking one off
+      // the list is an instruction to play it, not merely to select it. One
+      // already sounding restarts rather than doubling up on itself.
+      if (existing) {
+        return {
+          audioPlayers: state.audioPlayers.map((player) =>
+            player.track.id === track.id
+              ? { ...player, track, playing: true, positionMs: 0, seekToken: player.seekToken + 1 }
+              : player,
+          ),
+        };
+      }
+      const player: AudioPlayer = {
+        track,
+        playing: true,
+        positionMs: 0,
+        durationMs: 0,
+        volume: clamp01(track.volume),
+        seekToken: 0,
+      };
+      return { audioPlayers: [...state.audioPlayers, player] };
+    });
   },
 
-  toggleAudio: () => set((state) => ({ audioPlaying: !!state.audioTrack && !state.audioPlaying })),
-
-  stopAudio: () => set({ audioTrack: null, audioPlaying: false, audioPositionMs: 0 }),
-
-  seekAudio: (ms) =>
+  toggleTrack: (id) =>
     set((state) => ({
-      audioPositionMs: Math.max(0, ms),
-      audioSeekToken: state.audioSeekToken + 1,
+      audioPlayers: state.audioPlayers.map((player) =>
+        player.track.id === id ? { ...player, playing: !player.playing } : player,
+      ),
     })),
 
-  reportAudio: (audioPositionMs, audioDurationMs) => set({ audioPositionMs, audioDurationMs }),
+  stopTrack: (id) =>
+    set((state) => ({
+      audioPlayers: state.audioPlayers.filter((player) => player.track.id !== id),
+    })),
+
+  stopAllAudio: () => set({ audioPlayers: [] }),
+
+  seekTrack: (id, ms) =>
+    set((state) => ({
+      audioPlayers: state.audioPlayers.map((player) =>
+        player.track.id === id
+          ? { ...player, positionMs: Math.max(0, ms), seekToken: player.seekToken + 1 }
+          : player,
+      ),
+    })),
+
+  setTrackVolume(id, volume) {
+    const next = clamp01(volume);
+    // Live at once, on disk in a moment: a slider drags at pointer rate, and
+    // the mixer must not lag the hand that is riding it.
+    set((state) => ({
+      audioPlayers: state.audioPlayers.map((player) =>
+        player.track.id === id
+          ? { ...player, volume: next, track: { ...player.track, volume: next } }
+          : player,
+      ),
+    }));
+    scheduleVolumeSave(id, next, get);
+  },
+
+  toggleAllMedia() {
+    const { audioPlayers, live, playback } = get();
+    const hasClip = live.kind === "video";
+    const sounding = audioPlayers.some((player) => player.playing);
+    const moving = hasClip && playback.playing;
+
+    // Anything running stops. Paused, not cleared: this is the key a hand
+    // finds in the dark, and it should never be the one that loses the
+    // operator their place.
+    if (sounding || moving) {
+      if (sounding) {
+        set({ audioPlayers: audioPlayers.map((player) => ({ ...player, playing: false })) });
+      }
+      if (moving) void get().patchPlayback({ playing: false });
+      return true;
+    }
+
+    // Nothing running, but something is sitting there stopped: set it going.
+    if (audioPlayers.length > 0) {
+      set({ audioPlayers: audioPlayers.map((player) => ({ ...player, playing: true })) });
+    }
+    if (hasClip) void get().patchPlayback({ playing: true });
+    return audioPlayers.length > 0 || hasClip;
+  },
+
+  reportAudio: (id, positionMs, durationMs) =>
+    set((state) => ({
+      audioPlayers: state.audioPlayers.map((player) =>
+        player.track.id === id ? { ...player, positionMs, durationMs } : player,
+      ),
+    })),
 
   async updateTimer(timer) {
     set({ timer });
@@ -450,6 +633,7 @@ export const useStore = create<Store>((set, get) => ({
     if (!payload) return;
     try {
       await api.setLive(payload);
+      remember(deck, index);
       // `set_live` restarts the transport; give it the clip's own loop setting
       // before anything has had time to play.
       const slide = deck.slides[index];
@@ -460,6 +644,24 @@ export const useStore = create<Store>((set, get) => ({
       get().reportError(error);
     }
   },
+
+  async replayHistory(id) {
+    const entry = get().history.find((item) => item.id === id);
+    if (!entry) return;
+    // The deck has usually moved on, so its own deck goes back first or `go`
+    // would index into whatever is open now.
+    //
+    // Deliberately not `loadDeck`: that honours `blankOnSwitch`, which exists
+    // so nothing leaks while the operator hunts for the next thing. Here they
+    // have already picked it, and a blank frame between the click and the
+    // slide would be a flicker for no reason.
+    if (get().deck?.key !== entry.deck.key) {
+      set({ deck: entry.deck, cursor: entry.index, liveIndex: null });
+    }
+    await get().go(entry.index);
+  },
+
+  clearHistory: () => set({ history: [] }),
 
   async step(delta) {
     const { deck, cursor, blanked, liveIndex } = get();

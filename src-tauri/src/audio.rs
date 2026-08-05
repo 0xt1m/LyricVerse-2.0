@@ -34,6 +34,10 @@ pub struct Track {
     /// Start again at the end. Saved per track, since whether a piece loops is
     /// a property of the piece — a bed of music does, a sting does not.
     pub looping: bool,
+    /// How loud this track sits against the others, 0..1. Saved per track for
+    /// the same reason `looping` is: a bed under a prayer wants to be well
+    /// under a sting, every time it is used, without being re-ridden by hand.
+    pub volume: f64,
     /// The file is gone from under us; kept in the list so it can be seen and
     /// removed rather than silently vanishing.
     pub missing: bool,
@@ -46,6 +50,14 @@ struct Entry {
     filename: String,
     #[serde(default)]
     looping: bool,
+    /// Absent in manifests written before levels existed, which is what the
+    /// default is for — an old library comes back at full volume, unchanged.
+    #[serde(default = "full_volume")]
+    volume: f64,
+}
+
+fn full_volume() -> f64 {
+    1.0
 }
 
 type Manifest = std::collections::BTreeMap<String, Entry>;
@@ -81,6 +93,7 @@ pub fn list(dir: &Path) -> Result<Vec<Track>> {
                 missing: !path.exists(),
                 name: entry.name,
                 looping: entry.looping,
+                volume: entry.volume.clamp(0.0, 1.0),
                 path,
             })
         })
@@ -130,7 +143,7 @@ pub fn import(dir: &Path, source: &Path) -> Result<Track> {
     let id = fresh_id(&manifest, &slugify_filename(stem));
     manifest.insert(
         id.clone(),
-        Entry { name: stem.to_string(), filename, looping: false },
+        Entry { name: stem.to_string(), filename, looping: false, volume: 1.0 },
     );
     write_manifest(dir, &manifest)?;
 
@@ -139,6 +152,7 @@ pub fn import(dir: &Path, source: &Path) -> Result<Track> {
         name: stem.to_string(),
         path: target,
         looping: false,
+        volume: 1.0,
         missing: false,
     })
 }
@@ -165,6 +179,17 @@ pub fn set_looping(dir: &Path, id: &str, looping: bool) -> Result<()> {
     write_manifest(dir, &manifest)
 }
 
+/// Sets a track's level. Clamped here rather than trusted: the value comes
+/// from a slider in the webview, and a manifest is a file people can edit.
+pub fn set_volume(dir: &Path, id: &str, volume: f64) -> Result<()> {
+    let mut manifest = read_manifest(dir);
+    let entry = manifest
+        .get_mut(id)
+        .ok_or_else(|| AppError::msg(format!("track \"{id}\" does not exist")))?;
+    entry.volume = if volume.is_finite() { volume.clamp(0.0, 1.0) } else { 1.0 };
+    write_manifest(dir, &manifest)
+}
+
 pub fn remove(dir: &Path, id: &str, delete_file: bool) -> Result<()> {
     let mut manifest = read_manifest(dir);
     let entry = manifest
@@ -185,14 +210,23 @@ pub fn remove(dir: &Path, id: &str, delete_file: bool) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A directory of this test's own.
+    ///
+    /// The clock alone is not enough to tell two of these apart: tests run in
+    /// parallel, and two starting inside the same tick shared a directory —
+    /// then the first to finish deleted the manifest out from under the
+    /// second. A counter makes a collision impossible rather than unlikely.
     fn temp() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
         let dir = std::env::temp_dir().join(format!(
-            "lyricverse-audio-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
+            "lyricverse-audio-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
         ));
+        // A previous run that was killed before its cleanup would otherwise
+        // leave a manifest here for this one to trip over.
+        fs::remove_dir_all(&dir).ok();
         ensure_dir(&dir).expect("temp dir");
         dir
     }
@@ -217,6 +251,56 @@ mod tests {
         assert_eq!(found.name, "Prelude");
         assert!(found.looping);
         assert!(!found.missing);
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn levels_are_remembered_clamped_and_default_to_full() {
+        let dir = temp();
+        let source = dir.join("Bed.mp3");
+        fs::write(&source, b"not really audio").expect("write");
+        let track = import(&dir, &source).expect("import");
+        // A track nobody has touched plays at the level it was recorded at.
+        assert_eq!(track.volume, 1.0);
+
+        set_volume(&dir, &track.id, 0.35).expect("set");
+        let found = list(&dir).expect("list").into_iter().find(|t| t.id == track.id).expect("present");
+        assert!((found.volume - 0.35).abs() < f64::EPSILON);
+
+        // The value arrives from a slider in a webview and lands in a file
+        // people can edit, so it is clamped rather than trusted.
+        set_volume(&dir, &track.id, 4.2).expect("set high");
+        let loud = list(&dir).expect("list").into_iter().find(|t| t.id == track.id).expect("present");
+        assert_eq!(loud.volume, 1.0);
+
+        set_volume(&dir, &track.id, -1.0).expect("set low");
+        let quiet = list(&dir).expect("list").into_iter().find(|t| t.id == track.id).expect("present");
+        assert_eq!(quiet.volume, 0.0);
+
+        assert!(set_volume(&dir, "no-such-track", 0.5).is_err());
+
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_manifest_written_before_levels_existed_comes_back_at_full_volume() {
+        let dir = temp();
+        let source = dir.join("Old.mp3");
+        fs::write(&source, b"not really audio").expect("write");
+        let track = import(&dir, &source).expect("import");
+
+        // Exactly what an older build left behind: no `volume` key at all.
+        let manifest = format!(
+            r#"{{"{}":{{"name":"Old","filename":"{}","looping":true}}}}"#,
+            track.id,
+            track.path.file_name().and_then(|n| n.to_str()).expect("filename"),
+        );
+        fs::write(manifest_path(&dir), manifest).expect("write manifest");
+
+        let found = list(&dir).expect("list").into_iter().find(|t| t.id == track.id).expect("present");
+        assert_eq!(found.volume, 1.0);
+        assert!(found.looping);
 
         fs::remove_dir_all(&dir).ok();
     }

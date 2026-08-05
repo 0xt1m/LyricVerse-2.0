@@ -130,7 +130,14 @@ export function LayoutCanvas({
               transform: `scale(${width / aspect.width})`,
             }}
           >
-            <Stage preset={preset} live={live} height={aspect.height} alwaysRender timer={SAMPLE_TIMER} />
+            <Stage
+              preset={preset}
+              live={live}
+              height={aspect.height}
+              alwaysRender
+              timer={SAMPLE_TIMER}
+              preview
+            />
           </div>
         )}
 

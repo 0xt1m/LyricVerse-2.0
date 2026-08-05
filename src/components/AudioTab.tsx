@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import type { Track } from "../api/types";
-import { useStore } from "../app/store";
+import { useStore, type AudioPlayer } from "../app/store";
 import { useFileDrop, within } from "../lib/fileDrop";
-import { formatTime } from "../lib/playback";
+import { formatTime, percent, useScrub } from "../lib/playback";
 import { Icon } from "./ui/Icon";
 import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
 import { useDialogs } from "./ui/Dialogs";
@@ -25,12 +25,12 @@ export function AudioTab() {
   const libraryRevision = useStore((s) => s.libraryRevision);
   const reportError = useStore((s) => s.reportError);
   const toast = useStore((s) => s.toast);
-  const current = useStore((s) => s.audioTrack);
-  const playing = useStore((s) => s.audioPlaying);
-  const positionMs = useStore((s) => s.audioPositionMs);
-  const durationMs = useStore((s) => s.audioDurationMs);
+  const players = useStore((s) => s.audioPlayers);
   const playTrack = useStore((s) => s.playTrack);
-  const toggleAudio = useStore((s) => s.toggleAudio);
+  const toggleTrack = useStore((s) => s.toggleTrack);
+
+  /** The player for a track, when it is one of the ones sounding. */
+  const playerFor = (id: string) => players.find((item) => item.track.id === id) ?? null;
 
   const [tracks, setTracks] = useState<Track[]>([]);
   const [extensions, setExtensions] = useState<string[]>([]);
@@ -95,7 +95,7 @@ export function AudioTab() {
   const remove = async (track: Track) => {
     try {
       await api.deleteTrack(track.id, true);
-      if (current?.id === track.id) useStore.getState().stopAudio();
+      useStore.getState().stopTrack(track.id);
       reload();
     } catch (error) {
       reportError(error);
@@ -134,12 +134,13 @@ export function AudioTab() {
             }}
           >
             {tracks.map((track) => {
-              const isCurrent = current?.id === track.id;
+              const player = playerFor(track.id);
+              const sounding = !!player?.playing;
               const menu: MenuEntry[] = [
                 {
-                  label: isCurrent && playing ? t("audio.pause") : t("audio.play"),
-                  icon: isCurrent && playing ? "pause" : "play",
-                  onSelect: () => (isCurrent ? toggleAudio() : playTrack(track)),
+                  label: sounding ? t("audio.pause") : t("audio.play"),
+                  icon: sounding ? "pause" : "play",
+                  onSelect: () => (player ? toggleTrack(track.id) : playTrack(track)),
                 },
                 {
                   label: t("audio.loop"),
@@ -161,19 +162,19 @@ export function AudioTab() {
                       read better centred than pinned to a corner. */}
                   <button
                     className="tile tile--audio"
-                    data-live={isCurrent || undefined}
-                    aria-selected={isCurrent}
+                    data-live={!!player || undefined}
+                    aria-selected={!!player}
                     title={track.name}
-                    onClick={() => (isCurrent ? toggleAudio() : playTrack(track))}
+                    onClick={() => (player ? toggleTrack(track.id) : playTrack(track))}
                     onContextMenu={(event) => openMenu(event, menu)}
                   >
-                    <Icon name={isCurrent && playing ? "pause" : "play"} size={20} />
+                    <Icon name={sounding ? "pause" : "play"} size={20} />
                     <span className="track__name">{track.name}</span>
                     <span className="field__hint">
                       {track.missing
                         ? t("audio.missing")
-                        : isCurrent && durationMs > 0
-                          ? `${formatTime(positionMs)} / ${formatTime(durationMs)}`
+                        : player && player.durationMs > 0
+                          ? `${formatTime(player.positionMs)} / ${formatTime(player.durationMs)}`
                           : ""}
                     </span>
                   </button>
@@ -212,7 +213,121 @@ export function AudioTab() {
             </button>
           </div>
         </div>
+
+        <Mixer />
       </section>
+    </div>
+  );
+}
+
+/**
+ * A fader per sounding track, across the foot of the tab.
+ *
+ * With several tracks at once the question stops being "what is playing" and
+ * becomes "how do they sit against each other" — a bed of music has to duck
+ * under a voice, and reaching for one master fader would take the voice down
+ * with it. Absent entirely when nothing is playing, so the tab gives the room
+ * back rather than showing an empty desk.
+ */
+function Mixer() {
+  const t = useStore((s) => s.t);
+  const players = useStore((s) => s.audioPlayers);
+  const stopAllAudio = useStore((s) => s.stopAllAudio);
+
+  if (players.length === 0) return null;
+
+  return (
+    <div className="mixer">
+      <div className="mixer__head">
+        <span className="panel__title">{t("audio.mixer")}</span>
+        <span className="field__hint">{t("audio.playingCount", { n: players.length })}</span>
+        <div className="topbar__spacer" />
+        <button className="btn btn--sm" onClick={stopAllAudio}>
+          <Icon name="x" size={12} />
+          {t("audio.stopAll")}
+        </button>
+      </div>
+
+      <div className="mixer__strips">
+        {players.map((player) => (
+          <MixerStrip key={player.track.id} player={player} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One track's strip.
+ *
+ * A component of its own so each has its own drafted scrub position — the
+ * alternative is a hook inside a loop, which React will not have.
+ */
+function MixerStrip({ player }: { player: AudioPlayer }) {
+  const t = useStore((s) => s.t);
+  const toggleTrack = useStore((s) => s.toggleTrack);
+  const stopTrack = useStore((s) => s.stopTrack);
+  const setTrackVolume = useStore((s) => s.setTrackVolume);
+  const seekTrack = useStore((s) => s.seekTrack);
+  // The element reports its position about four times a second, and every one
+  // of those would drag the thumb back to where the track actually is. The
+  // draft is shown while the hand is down and the seek sent once, on release.
+  const scrub = useScrub(player.positionMs, (ms) => seekTrack(player.track.id, ms));
+  const level = Math.round(player.volume * 100);
+
+  return (
+    <div className="mixer__strip">
+      <button
+        className="btn btn--icon btn--sm"
+        title={player.playing ? t("audio.pause") : t("audio.play")}
+        onClick={() => toggleTrack(player.track.id)}
+      >
+        <Icon name={player.playing ? "pause" : "play"} size={12} />
+      </button>
+
+      <span className="mixer__name" title={player.track.name}>
+        {player.track.name}
+      </span>
+
+      <input
+        className="scrub mixer__scrub"
+        type="range"
+        min={0}
+        max={Math.max(1, Math.round(player.durationMs))}
+        value={Math.min(Math.round(scrub.value), Math.round(player.durationMs))}
+        disabled={player.durationMs <= 0}
+        style={{ "--played": `${percent(scrub.value, player.durationMs)}%` } as CSSProperties}
+        onChange={(event) => scrub.onChange(Number(event.target.value))}
+        onKeyUp={scrub.onKeyUp}
+      />
+      <span className="mixer__time">
+        {formatTime(scrub.value)} / {formatTime(player.durationMs)}
+      </span>
+
+      {/* The fader needs no draft: nothing else writes the level, so the value
+          shown is only ever the one the hand just set. */}
+      <span className="mixer__fader">
+        <Icon name={player.volume === 0 ? "volumeOff" : "volume"} size={12} />
+        <input
+          className="scrub mixer__volume"
+          type="range"
+          min={0}
+          max={100}
+          value={level}
+          title={t("audio.volume")}
+          style={{ "--played": `${level}%` } as CSSProperties}
+          onChange={(event) => setTrackVolume(player.track.id, Number(event.target.value) / 100)}
+        />
+        <span className="mixer__level">{level}</span>
+      </span>
+
+      <button
+        className="btn btn--icon btn--sm"
+        title={t("audio.stop")}
+        onClick={() => stopTrack(player.track.id)}
+      >
+        <Icon name="x" size={12} />
+      </button>
     </div>
   );
 }

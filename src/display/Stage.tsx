@@ -34,6 +34,15 @@ interface Props {
   timer?: Timer | null;
   /** How the clip on screen should be playing. */
   playback?: Playback | null;
+  /**
+   * This is one of the console's previews rather than a real screen.
+   *
+   * It still follows the transport — a preview that ignored pause would be
+   * showing the operator something the room is not — but it never makes a
+   * sound, because it shares a machine with the projection window already
+   * playing the same clip.
+   */
+  preview?: boolean;
 }
 
 /**
@@ -41,7 +50,16 @@ interface Props {
  * preview thumbnails and the layout editor — so what the editor shows is what
  * the projector shows, not an approximation of it.
  */
-export function Stage({ preset, live, height, identify, alwaysRender, timer, playback }: Props) {
+export function Stage({
+  preset,
+  live,
+  height,
+  identify,
+  alwaysRender,
+  timer,
+  playback,
+  preview,
+}: Props) {
   const isMedia = live.kind === "image" || live.kind === "video";
   const isTimer = live.kind === "timer";
   // A typed message belongs to the Slides tab, so it is styled there too —
@@ -100,7 +118,7 @@ export function Stage({ preset, live, height, identify, alwaysRender, timer, pla
 
       {/* A presentation slide or a clip fills the screen; the layout's text
           elements belong to songs and scripture, so only the timer overlays. */}
-      {isMedia && <LiveMedia live={live} playback={playback ?? null} />}
+      {isMedia && <LiveMedia live={live} playback={playback ?? null} preview={!!preview} />}
 
       {!blank &&
         visibleElements(layout).map((element) => {
@@ -256,10 +274,12 @@ function VideoClip({
   url,
   playback,
   style,
+  preview,
 }: {
   url: string;
   playback: Playback | null;
   style: React.CSSProperties;
+  preview?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const deviceId = useAudioDevice();
@@ -268,15 +288,21 @@ function VideoClip({
     const node = ref.current;
     if (!node || !playback) return;
 
-    const wanted = playbackPosition(playback, Date.now()) / 1000;
+    // The element's own length, so a looping clip resyncs to a point inside
+    // itself rather than to however long it has been going round.
+    const length = Number.isFinite(node.duration) ? node.duration * 1000 : 0;
+    const wanted = playbackPosition(playback, Date.now(), length) / 1000;
     // A third of a second: below what anyone can see, above the jitter of
     // decoding and of the two clocks involved.
     if (Math.abs(node.currentTime - wanted) > 0.34) node.currentTime = wanted;
-    node.muted = playback.muted;
+    // Muting is left to the `muted` prop below. Writing it here as well meant
+    // two owners for one property: React re-applied its value on every render
+    // — and Stage re-renders constantly, the timer alone ticking it — so the
+    // console's mute button went dead on the screen a moment after each press.
     node.loop = playback.looping;
     if (playback.playing) void node.play().catch(() => {});
     else node.pause();
-  }, [playback?.revision, playback?.playing, playback?.muted, playback?.looping, url]);
+  }, [playback?.revision, playback?.playing, playback?.looping, url]);
 
   useEffect(() => {
     applySink(ref.current, deviceId);
@@ -291,6 +317,11 @@ function VideoClip({
       autoPlay
       playsInline
       controls={false}
+      // The only place muting is decided. A preview shares a machine with the
+      // projection window already playing this clip, so sound here would be an
+      // echo of the room's; so would a clip with no transport at all. Anything
+      // else follows the room's own setting.
+      muted={preview || !playback || playback.muted}
     />
   );
 }
@@ -416,7 +447,15 @@ function BackgroundMedia({
 }
 
 /** A presentation slide, a local clip, or the YouTube player. */
-function LiveMedia({ live, playback }: { live: LiveState; playback: Playback | null }) {
+function LiveMedia({
+  live,
+  playback,
+  preview,
+}: {
+  live: LiveState;
+  playback: Playback | null;
+  preview: boolean;
+}) {
   const fill: React.CSSProperties = {
     position: "absolute",
     inset: 0,
@@ -433,7 +472,7 @@ function LiveMedia({ live, playback }: { live: LiveState; playback: Playback | n
   const url = mediaSrc(live.mediaPath);
 
   if (live.kind === "video") {
-    return <VideoClip url={url} playback={playback} style={fill} />;
+    return <VideoClip url={url} playback={playback} style={fill} preview={preview} />;
   }
   return (
     <img

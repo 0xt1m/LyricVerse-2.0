@@ -1,6 +1,6 @@
 //! The View menu in the macOS menu bar.
 //!
-//! The same three switches as the in-app View button, put where a Mac user
+//! The same switches as the in-app View button, put where a Mac user
 //! looks for them. Both routes write the same settings, so a tick here and a
 //! tick there can never disagree — the menu is refreshed from the settings
 //! whenever they change, wherever the change came from.
@@ -20,10 +20,15 @@ use crate::settings::Settings;
 
 /// Menu id → the setting it toggles. The id is what comes back in the event,
 /// and the field name is what the frontend already calls it.
-pub const ITEMS: [(&str, &str); 3] = [
+pub const ITEMS: [(&str, &str); 6] = [
     ("view.statusBar", "Status bar"),
     ("view.preview", "Preview panel"),
     ("view.filmstrip", "Slide strip"),
+    ("view.sidePanel", "Side panel"),
+    // Where that panel goes. Ticks rather than a submenu: two mutually
+    // exclusive items read as a choice, and Tauri's menu has no radio item.
+    ("view.sidePanel.right", "Side panel on the right"),
+    ("view.sidePanel.bottom", "Side panel at the bottom"),
 ];
 
 /// The check items, kept so their ticks can be re-synced later.
@@ -35,6 +40,10 @@ fn is_on(settings: &Settings, id: &str) -> bool {
         "view.statusBar" => settings.show_status_bar,
         "view.preview" => settings.show_preview,
         "view.filmstrip" => settings.show_filmstrip,
+        "view.sidePanel" => settings.show_side_panel,
+        // Anything that is not "bottom" is the default, "right".
+        "view.sidePanel.bottom" => settings.side_panel_placement == "bottom",
+        "view.sidePanel.right" => settings.side_panel_placement != "bottom",
         _ => true,
     }
 }
@@ -46,6 +55,11 @@ pub fn toggle(settings: &mut Settings, id: &str) -> bool {
         "view.statusBar" => settings.show_status_bar = !settings.show_status_bar,
         "view.preview" => settings.show_preview = !settings.show_preview,
         "view.filmstrip" => settings.show_filmstrip = !settings.show_filmstrip,
+        "view.sidePanel" => settings.show_side_panel = !settings.show_side_panel,
+        // Picking an edge is a choice, not a toggle: clicking the one already
+        // ticked leaves it ticked rather than docking the panel nowhere.
+        "view.sidePanel.right" => settings.side_panel_placement = "right".into(),
+        "view.sidePanel.bottom" => settings.side_panel_placement = "bottom".into(),
         _ => return false,
     }
     true

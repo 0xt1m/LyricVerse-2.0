@@ -11,10 +11,34 @@ import type { Playback } from "../api/types";
  * where it should be.
  */
 
-/** Where the clip should be now, in milliseconds. */
-export function playbackPosition(playback: Playback, now: number): number {
+/**
+ * Where the clip should be now, in milliseconds.
+ *
+ * The anchor only ever counts forwards, so without knowing how long the clip
+ * is there is nothing to stop it: a three-second clip read "0:08 / 0:03" while
+ * looping, and "1:27 / 0:03" once it had simply been left playing. `durationMs`
+ * is what bounds it — a looping clip wraps round with the picture, and one that
+ * is not looping stops at its own end, where it has actually stopped.
+ *
+ * The bound also keeps the projection window honest: a resync that landed
+ * while the count was out past the end would ask the video element to seek
+ * somewhere it cannot go.
+ *
+ * Optional because the length is not always known — a clip whose metadata has
+ * not loaded, or a YouTube embed that never reports one, falls back to the
+ * unbounded count rather than to nothing.
+ */
+export function playbackPosition(playback: Playback, now: number, durationMs = 0): number {
   const elapsed = playback.playing ? now - playback.anchorMs : 0;
-  return Math.max(0, playback.positionMs + elapsed);
+  const position = Math.max(0, playback.positionMs + elapsed);
+  if (durationMs <= 0) return position;
+  return playback.looping ? position % durationMs : Math.min(position, durationMs);
+}
+
+/** How far through, as a percentage — what paints a scrubber's filled part. */
+export function percent(value: number, total: number): number {
+  if (!(total > 0)) return 0;
+  return Math.min(100, Math.max(0, (value / total) * 100));
 }
 
 /** A new transport state stamped against the clock, ready to be sent. */

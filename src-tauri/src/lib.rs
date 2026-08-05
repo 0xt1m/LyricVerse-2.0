@@ -800,6 +800,13 @@ fn set_track_looping(app: AppHandle, id: String, looping: bool) -> Result<()> {
 }
 
 #[tauri::command]
+fn set_track_volume(app: AppHandle, id: String, volume: f64) -> Result<()> {
+    audio::set_volume(&paths::audio_dir(&app)?, &id, volume)?;
+    let _ = app.emit(EVENT_LIBRARY, ());
+    Ok(())
+}
+
+#[tauri::command]
 fn delete_track(app: AppHandle, id: String, delete_file: bool) -> Result<()> {
     audio::remove(&paths::audio_dir(&app)?, &id, delete_file)?;
     let _ = app.emit(EVENT_LIBRARY, ());
@@ -1026,6 +1033,7 @@ pub fn run() {
             import_track,
             rename_track,
             set_track_looping,
+            set_track_volume,
             delete_track,
             supported_audio_extensions,
             list_videos,

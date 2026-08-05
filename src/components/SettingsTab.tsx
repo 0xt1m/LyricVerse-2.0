@@ -6,8 +6,11 @@ import { Field, Slider, Switch } from "./ui/controls";
 import { canRouteAudio } from "./AudioEngine";
 
 const SHORTCUTS: [string, string[]][] = [
-  ["shortcut.next", ["Space", "→", "PgDn"]],
+  ["shortcut.next", ["→", "PgDn"]],
   ["shortcut.prev", ["←", "PgUp"]],
+  // Space does one or the other depending on what is happening, so it is
+  // listed as the thing it does first rather than left under "next slide".
+  ["shortcut.toggleMedia", ["Space"]],
   ["shortcut.blank", ["Esc", "B"]],
   ["shortcut.search", ["/"]],
   ["shortcut.edit", ["E"]],
