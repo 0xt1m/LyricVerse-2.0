@@ -1,0 +1,1795 @@
+/* ---------------------------------------------------------------------------
+   LyricVerse design tokens
+
+   A stage-console palette: near-black neutrals so the operator's screen never
+   washes out a darkened room, with a single warm accent for anything that is
+   about to go live.
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg: #0a0c0f;
+  --panel: #12151a;
+  --panel-raised: #181c23;
+  --panel-sunken: #0d1014;
+  --border: #232833;
+  --border-strong: #313846;
+
+  --text: #e9edf3;
+  --text-muted: #909aab;
+  --text-faint: #626d7e;
+
+  --accent: #f0a83a;
+  --accent-soft: rgba(240, 168, 58, 0.14);
+  --accent-line: rgba(240, 168, 58, 0.4);
+  --accent-ink: #12151a;
+
+  --live: #e5484d;
+  --live-soft: rgba(229, 72, 77, 0.14);
+  --ok: #46b17b;
+  --info: #5b8def;
+
+  --verse: #5b8def;
+  --chorus: #f0a83a;
+  --bridge: #b06cf0;
+  --other: #46b17b;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 12px 48px rgba(0, 0, 0, 0.6);
+
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  --header-h: 52px;
+  --status-h: 50px;
+  /* Fits a 16:9 preview plus its screen picker, with room around both. */
+  --footer-h: 208px;
+  /* The foot with the strip alone in it. */
+  --strip-h: 98px;
+  /* Wide enough for the longest tab label ("Налаштування") without clipping. */
+  --rail-w: 100px;
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* The console is a tool, not a document: no accidental text selection.
+     WebKit needs the prefixed property as well. */
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* Anything draggable must never start a selection instead of a drag. */
+.slide,
+.slide__text,
+.menu {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Scrollbars ---------------------------------------------------------- */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #47506180;
+  background-clip: content-box;
+}
+
+/* --- App shell ----------------------------------------------------------- */
+
+.app {
+  display: grid;
+  /* `minmax(0, 1fr)`, not the implicit `auto`: an auto-sized track grows to the
+     min-content width of its widest item, so one long row — a filmstrip of a
+     176-verse chapter — would widen the column past the window and drag the
+     header and body out with it. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: var(--header-h) var(--status-h) 1fr var(--footer-h);
+  height: 100%;
+  overflow: hidden;
+}
+
+.app__body {
+  display: grid;
+  /* Same reasoning as `.app`: the tab must not be able to push the rail off. */
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  min-height: 0;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  padding-right: 6px;
+}
+
+.topbar__mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: linear-gradient(140deg, #f7bb45, #d45c17);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.topbar__version {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.topbar__spacer {
+  flex: 1;
+}
+
+/* --- Left rail ----------------------------------------------------------- */
+
+.rail {
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 10px 0;
+  gap: 2px;
+}
+
+.rail__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 5px;
+  padding: 10px 5px;
+  margin: 0 8px;
+  min-height: 62px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.rail__label {
+  max-width: 100%;
+  font-size: 10.5px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-align: center;
+  /* Ukrainian tab names are long single words — let them wrap rather than
+     spill past the rail. */
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.rail__item:hover {
+  color: var(--text-muted);
+  background: var(--panel-raised);
+}
+
+.rail__item[aria-selected="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.rail__spacer {
+  flex: 1;
+}
+
+/* --- Panels -------------------------------------------------------------- */
+
+.workspace {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--panel-sunken);
+  border-right: 1px solid var(--border);
+}
+
+.panel:last-child {
+  border-right: 0;
+}
+
+.panel__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 46px;
+}
+
+.panel__title {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* A row of full-width actions under a panel header, for when two buttons and
+   a title will not fit on one line in a narrow panel. */
+.panel__actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__actions .btn {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Icon-only buttons in an actions row keep their natural size. */
+.panel__actions .btn--icon {
+  flex: none;
+}
+
+.panel__actions .btn > span,
+.panel__actions .btn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel__foot {
+  border-top: 1px solid var(--border);
+  padding: 9px 12px;
+  background: var(--panel);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* --- Lists --------------------------------------------------------------- */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 2px;
+}
+
+.row {
+  appearance: none;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.35;
+  transition: background 0.1s, color 0.1s;
+}
+
+.row:hover {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.row[aria-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.row__num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  font-size: 12px;
+  min-width: 2.4em;
+  flex: none;
+}
+
+.row[aria-selected="true"] .row__num {
+  color: var(--accent);
+}
+
+.row__main {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Both are spans inside .row__main — they must be blocks, or a title and its
+   subtitle render on the same line and overlap. */
+.row__title,
+.row__sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__sub {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 13px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.empty__title {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* --- Slides (the song's section list) ------------------------------------ */
+
+.slides {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  gap: 6px;
+}
+
+.slide {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  padding: 9px 11px 10px;
+  cursor: pointer;
+  text-align: left;
+  display: grid;
+  gap: 5px;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.slide:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.slide[aria-selected="true"] {
+  border-color: var(--accent-line);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.slide[data-live="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent);
+}
+
+.slide__label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.slide__label::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.slide__label[data-kind="verse"] {
+  color: var(--verse);
+}
+.slide__label[data-kind="chorus"] {
+  color: var(--chorus);
+}
+.slide__label[data-kind="bridge"] {
+  color: var(--bridge);
+}
+.slide__label[data-kind="other"] {
+  color: var(--other);
+}
+
+.slide__text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.42;
+  word-break: break-word;
+}
+
+.slide__text--dim {
+  color: var(--text-faint);
+}
+
+/* --- Slide tiles ---------------------------------------------------------- */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: 12px;
+  padding: 12px;
+  align-content: start;
+}
+
+.tile {
+  appearance: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: pointer;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  /* Close to a 16:9 screen, so the grid reads as slides rather than cards. */
+  aspect-ratio: 16 / 10;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.tile:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tile[aria-selected="true"] {
+  border-color: var(--accent-line);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+/* Part of a multi-selection: filled, so it reads differently from the single
+   highlighted tile. */
+.tile[data-marked="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.tile[data-live="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent);
+}
+
+.tile__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-sunken);
+}
+
+.tile__label::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: currentColor;
+  flex: none;
+}
+
+.tile__label[data-kind="verse"] {
+  color: var(--verse);
+}
+.tile__label[data-kind="chorus"] {
+  color: var(--chorus);
+}
+.tile__label[data-kind="bridge"] {
+  color: var(--bridge);
+}
+.tile__label[data-kind="other"],
+.tile__label[data-kind="scripture"] {
+  color: var(--other);
+}
+
+.tile__body {
+  min-height: 0;
+  overflow: hidden;
+  padding: 9px 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Centred like the slide it represents. `safe` falls back to the top when
+     the words overflow, so a long verse loses its end rather than its
+     beginning. */
+  display: grid;
+  align-content: safe center;
+  justify-items: center;
+  text-align: center;
+  /* Long verses fade out rather than being cut mid-letter. */
+  mask-image: linear-gradient(180deg, #000 76%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 76%, transparent 100%);
+}
+
+/* The tile that adds one more, always last in a grid. */
+.tile--add {
+  display: grid;
+  /* The base tile reserves a header row; this one has no header, so drop the
+     template or `place-content` has nothing to centre against. */
+  grid-template-rows: none;
+  place-content: center;
+  place-items: center;
+  gap: 6px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 550;
+  text-align: center;
+}
+
+.tile--add:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Typing straight into a tile — no dialog, no separate window. */
+.tile__editor {
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: var(--panel-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  padding: 10px 12px;
+  /* Matches the tile it replaces, so nothing shifts when editing starts. */
+  text-align: center;
+}
+
+.tile__body--dim {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-raised);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 6px 11px;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #202631;
+  color: var(--text);
+  border-color: #3d4657;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #f6b856;
+  border-color: #f6b856;
+  color: var(--accent-ink);
+}
+
+.btn--danger {
+  color: var(--live);
+  border-color: #4a2a2d;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--live-soft);
+  color: #ff6b70;
+  border-color: #6b3a3e;
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn--icon {
+  padding: 6px;
+  min-width: 30px;
+  justify-content: center;
+}
+
+.btn--sm {
+  padding: 4px 8px;
+  font-size: 11.5px;
+}
+
+.input,
+.select,
+.textarea {
+  appearance: none;
+  width: 100%;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  background: #0a0d11;
+}
+
+.select {
+  cursor: pointer;
+  padding-right: 26px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 13px, calc(100% - 9px) 13px;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.textarea {
+  resize: none;
+  line-height: 1.5;
+  font-size: 13.5px;
+}
+
+.search {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.search .input {
+  padding-left: 30px;
+}
+
+.search__icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+  display: flex;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+}
+
+.field__label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 550;
+}
+
+.field__hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch__track {
+  width: 34px;
+  height: 19px;
+  border-radius: 999px;
+  background: #2b323e;
+  position: relative;
+  transition: background 0.15s;
+  flex: none;
+}
+
+.switch__track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #8892a3;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.switch input:checked + .switch__track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch__track::after {
+  transform: translateX(15px);
+  background: #1a1207;
+}
+
+.switch input:focus-visible + .switch__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.switch:has(input:checked) {
+  color: var(--text);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-muted);
+  background: var(--panel-raised);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.chip:hover {
+  color: var(--text);
+  border-color: #3d4657;
+}
+
+.chip[data-active="true"] {
+  border-color: var(--accent-line);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+}
+
+.chip[data-active="true"] .chip__dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.chip--live {
+  border-color: var(--live);
+  color: #ff8a8e;
+  background: var(--live-soft);
+}
+
+.chip--live .chip__dot {
+  background: var(--live);
+  box-shadow: 0 0 8px var(--live);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.seg {
+  display: inline-flex;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  padding: 4px 11px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.seg__item:hover {
+  color: var(--text-muted);
+}
+
+.seg__item[aria-selected="true"] {
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+/* --- Footer / transport -------------------------------------------------- */
+
+/* What is live, directly under the title bar. */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--panel-sunken);
+  border-bottom: 1px solid var(--border);
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  /* Lets the filmstrip scroll instead of stretching the window. */
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+/* --- Preview in the transport bar ---------------------------------------- */
+
+.transport__preview {
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  align-content: start;
+  width: 208px;
+  flex: none;
+}
+
+.transport__preview .preview__card {
+  width: 100%;
+}
+
+.transport__preview--empty {
+  height: 117px;
+  width: 208px;
+  display: grid;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  place-content: center;
+}
+
+.transport__caption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.transport__caption[data-live] {
+  color: var(--live);
+}
+
+.transport__caption[data-live] .chip__dot {
+  background: currentColor;
+}
+
+.transport__preview-pick {
+  width: 100%;
+  padding: 3px 22px 3px 7px;
+  font-size: 11.5px;
+  background-position: calc(100% - 12px) 10px, calc(100% - 8px) 10px;
+  background-size: 4px 4px;
+}
+
+.transport__preview-name {
+  font-size: 11px;
+  color: var(--text-faint);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport__status {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.transport__label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  font-weight: 650;
+}
+
+.transport__value {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transport__value--blank {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* --- Preview ------------------------------------------------------------- */
+
+.preview {
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.preview__card {
+  display: grid;
+  gap: 6px;
+}
+
+.preview__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.preview__name {
+  font-weight: 600;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview__frame {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  background: #000;
+}
+
+.preview__frame[data-live="true"] {
+  border-color: var(--accent-line);
+}
+
+.preview__scaler {
+  position: absolute;
+  inset: 0;
+  transform-origin: top left;
+}
+
+.preview__off {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  color: var(--text-faint);
+  font-size: 12px;
+  background: repeating-linear-gradient(
+    45deg,
+    #0d1014,
+    #0d1014 8px,
+    #101419 8px,
+    #101419 16px
+  );
+}
+
+/* --- Modal --------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 6, 9, 0.72);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  z-index: 100;
+  animation: fade 0.12s ease-out;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  width: min(100%, 560px);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  animation: rise 0.14s ease-out;
+}
+
+.modal--wide {
+  width: min(100%, 960px);
+  height: min(100%, 680px);
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+.modal__head {
+  padding: 15px 18px 13px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal__title {
+  font-size: 15px;
+  font-weight: 650;
+  flex: 1;
+}
+
+.modal__body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-height: 0;
+}
+
+/* For dialogs whose content manages its own scrolling (the song editor), so
+   the panes scroll independently instead of the whole sheet growing. */
+.modal__body--fill {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-content: stretch;
+}
+
+.modal__foot {
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* --- Toasts -------------------------------------------------------------- */
+
+.toasts {
+  position: fixed;
+  bottom: calc(var(--footer-h) + 14px);
+  right: 14px;
+  display: grid;
+  gap: 8px;
+  z-index: 200;
+  pointer-events: none;
+  max-width: 380px;
+}
+
+.toast {
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--info);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 12.5px;
+  color: var(--text);
+  box-shadow: var(--shadow-panel);
+  animation: rise 0.15s ease-out;
+  pointer-events: auto;
+}
+
+.toast[data-tone="error"] {
+  border-left-color: var(--live);
+}
+.toast[data-tone="success"] {
+  border-left-color: var(--ok);
+}
+
+/* --- Settings forms ------------------------------------------------------ */
+
+.settings {
+  padding: 16px 20px 32px;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  max-width: 720px;
+}
+
+.group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.group__head {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.group__body {
+  padding: 14px;
+  display: grid;
+  gap: 13px;
+}
+
+/* A group that owns a slice of a fixed-height dialog and scrolls its own body. */
+.group--scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.group--scroll > .group__head {
+  flex: none;
+}
+
+.group--scroll > .group__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.editor-columns {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.editor-column {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.slider input[type="range"] {
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  cursor: pointer;
+}
+
+.slider input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--panel);
+  cursor: grab;
+}
+
+.slider__value {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 3.6em;
+  text-align: right;
+}
+
+.color {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 7px;
+  align-items: center;
+}
+
+.color input[type="color"] {
+  appearance: none;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.color input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+.color input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-faint);
+}
+
+.hint-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 11px;
+  color: var(--text-faint);
+  align-items: center;
+}
+
+.mark {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* --- Context menu -------------------------------------------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  display: grid;
+  gap: 1px;
+  animation: fade 0.09s ease-out;
+}
+
+.menu__item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 5px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu__item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.menu__item:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.menu__item[data-danger] {
+  color: #ff8a8e;
+}
+
+.menu__item[data-danger]:hover:not(:disabled) {
+  background: var(--live-soft);
+}
+
+.menu__icon {
+  display: flex;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.menu__item:hover:not(:disabled) .menu__icon {
+  color: inherit;
+}
+
+.menu__hint {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.menu__separator {
+  height: 1px;
+  background: var(--border);
+  margin: 3px 6px;
+}
+
+/* --- File drop target ---------------------------------------------------- */
+
+.dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 12, 15, 0.78);
+  backdrop-filter: blur(2px);
+  border: 2px dashed var(--accent);
+  border-radius: 6px;
+  pointer-events: none;
+  animation: fade 0.1s ease-out;
+}
+
+.dropzone__card {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 22px 32px;
+  border-radius: var(--radius-lg);
+  background: var(--panel-raised);
+  border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow-pop);
+  color: var(--accent);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* --- Timer control in the top bar ---------------------------------------- */
+
+.timerbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel-sunken);
+}
+
+.timerbar__readout {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 4.4em;
+  text-align: center;
+}
+
+.timerbar__readout:hover {
+  background: var(--panel-raised);
+}
+
+.timerbar__readout[data-running] {
+  color: var(--accent);
+}
+
+/* An overrun countdown has to be impossible to miss from across the room. */
+.timerbar__readout[data-overrun] {
+  color: var(--live);
+}
+
+/* Typing a new length straight into the readout, same metrics so the bar
+   does not jump when editing starts. */
+.timerbar__input {
+  width: 4.6em;
+  padding: 2px 6px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* --- Rubber-band selection ------------------------------------------------ */
+
+.tiles {
+  position: relative;
+}
+
+.marquee {
+  position: absolute;
+  z-index: 5;
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 3px;
+  /* Never swallow the pointer, or the drag would end the moment the band
+     grew under the cursor. */
+  pointer-events: none;
+}
+
+/* --- Filmstrip ----------------------------------------------------------- */
+
+/* The whole open deck, scrollable, live tile marked. */
+.filmstrip {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 2px 6px;
+  scrollbar-width: thin;
+}
+
+.filmstrip--empty {
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  align-items: center;
+}
+
+.filmstrip__tile {
+  all: unset;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 104px;
+  height: 74px;
+  padding: 16px 6px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 90ms ease, background 90ms ease;
+}
+
+.filmstrip__tile:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-raised);
+}
+
+/* Highlighted, but not on screen. */
+.filmstrip__tile[data-selected] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+/* On screen right now — the one state that must be readable at a glance. */
+.filmstrip__tile[data-live] {
+  border-color: var(--live);
+  box-shadow: inset 0 0 0 1px var(--live);
+}
+
+.filmstrip__index {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.filmstrip__label {
+  position: absolute;
+  bottom: 2px;
+  left: 6px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.filmstrip__text {
+  display: block;
+  height: 100%;
+  font-size: 9.5px;
+  line-height: 1.28;
+  color: var(--text-muted);
+  overflow: hidden;
+  /* Cut at a line rather than mid-letter, as the song tiles do. */
+  mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+}
+
+.filmstrip__glyph {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  color: var(--text-faint);
+}
+
+.filmstrip__thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 3px;
+}
+
+/* --- Audio library ------------------------------------------------------- */
+
+/* A track is a name and a state, so its tile is smaller and squarer than a
+   slide's — and its contents sit in the middle rather than along an edge. */
+.tiles--audio {
+  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  gap: 12px;
+}
+
+.tile--audio {
+  /* The base tile keeps a row for its header strip; this one has none. */
+  grid-template-rows: none;
+  place-content: center;
+  place-items: center;
+  gap: 9px;
+  padding: 18px 14px;
+  aspect-ratio: 16 / 10;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+.tile--audio .track__name {
+  color: var(--text);
+  max-width: 100%;
+}
+
+.tile--audio[data-live] {
+  color: var(--live);
+}
+
+.track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+}
+
+.track:hover {
+  border-color: var(--border-strong);
+}
+
+/* Playing right now — the same red the rest of the app uses for "on air". */
+.track[data-live] {
+  border-color: var(--live);
+  background: var(--panel-raised);
+}
+
+.track__name {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The scrub bar in the title bar, sized to sit in a 52px row. */
+.timerbar__scrub {
+  width: 108px;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* --- Favourites ---------------------------------------------------------- */
+
+/* The row and its star share a line; the star sits over the row's right edge
+   rather than taking a column, so an unstarred list looks exactly as before. */
+.row__wrap {
+  position: relative;
+  display: block;
+}
+
+.row__star {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  /* Hidden until wanted: a column of empty stars would be noise. */
+  opacity: 0;
+  transition: opacity 90ms ease, color 90ms ease;
+}
+
+.row__wrap:hover .row__star,
+.row__star:focus-visible,
+.row__star[data-on] {
+  opacity: 1;
+}
+
+.row__star:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.row__star[data-on] {
+  color: var(--accent);
+}

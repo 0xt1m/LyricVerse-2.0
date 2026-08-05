@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LyricVerse",
+  "version": "2.0.0",
+  "identifier": "app.lyricverse.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev:vite",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:vite",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "control",
+        "title": "LyricVerse",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 640,
+        "resizable": true,
+        "center": true,
+        "theme": "Dark"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https://i.ytimg.com; media-src 'self' asset: http://asset.localhost data: blob:; frame-src https://www.youtube-nocookie.com https://www.youtube.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/Backgrounds/**",
+          "$APPDATA/Presentations/**",
+          "$APPDATA/Videos/**",
+          "$APPDATA/Audio/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Education",
+    "shortDescription": "Song & Scripture presentation",
+    "longDescription": "Project song lyrics and Bible passages onto any number of screens, each with its own layout \u2014 including a chroma-key mode for live streaming.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/seed/**/*"
+    ]
+  }
+}

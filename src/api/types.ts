@@ -1,0 +1,458 @@
+/** Mirrors the serde shapes in src-tauri/src. Keep the two in sync. */
+
+export type SectionKind = "verse" | "chorus" | "bridge" | "other";
+
+export interface Section {
+  id: string;
+  kind: SectionKind;
+  label?: string | null;
+  text: string;
+}
+
+export interface Song {
+  id: number;
+  title: string;
+  sections: Section[];
+  /** Section ids in performance order; ids may repeat. */
+  order: string[];
+}
+
+export interface SongSummary {
+  id: number;
+  title: string;
+  firstLine: string;
+  sectionCount: number;
+}
+
+export interface SongbookMeta {
+  name: string;
+  filename: string;
+  songCount: number;
+  error: string | null;
+}
+
+export interface TranslationMeta {
+  name: string;
+  filename: string;
+  error: string | null;
+}
+
+export interface BookInfo {
+  number: number;
+  shortName: string;
+  longName: string;
+  color: string;
+  chapters: number;
+}
+
+export interface VerseRow {
+  book: number;
+  chapter: number;
+  verse: number;
+  text: string;
+}
+
+export interface SearchHit {
+  book: number;
+  bookName: string;
+  chapter: number;
+  verse: number;
+  text: string;
+  reference: string;
+  matchStart: number;
+  matchEnd: number;
+}
+
+export interface BibleReference {
+  book: number;
+  chapter: number;
+  verse: number;
+  endVerse: number;
+}
+
+export interface ResolvedReference {
+  reference: BibleReference;
+  label: string;
+  text: string;
+}
+
+export interface DisplayInfo {
+  id: string;
+  index: number;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+  isPrimary: boolean;
+  isOpen: boolean;
+}
+
+export type LiveKind =
+  | "blank"
+  | "song"
+  | "bible"
+  | "image"
+  | "video"
+  | "timer"
+  | "message";
+
+/** One field per layout element — a display draws whichever ones it is
+ *  configured to show. */
+export interface LiveState {
+  kind: LiveKind;
+  /** The section or passage on screen. */
+  bodyPart: string;
+  /** Song title, or the book name for scripture. */
+  title: string;
+  /** Song number, or the verse number for scripture. */
+  number: string;
+  sectionLabel: string;
+  reference: string;
+  translation: string;
+  /** The slide queued after this one — what a confidence screen is for. */
+  nextUp: string;
+  sectionKind: string;
+  /** Absolute path of the image or video filling the screen. */
+  mediaPath: string | null;
+  /** YouTube id, when the live item is a link rather than a file. */
+  youtubeId: string | null;
+  revision: number;
+}
+
+export type TimerMode = "countdown" | "countUp" | "clock";
+
+/**
+ * Kept apart from the live state on purpose: a countdown to the start of the
+ * service keeps running while the operator moves between songs, and each
+ * display ticks it locally from the anchor.
+ */
+export interface Timer {
+  mode: TimerMode;
+  label: string;
+  /** Epoch ms the countdown ends, or the count-up began. */
+  anchorMs: number;
+  /** Milliseconds left or elapsed while paused. */
+  frozenMs: number;
+  /** What the countdown was set to, so Reset works from anywhere. */
+  durationMs: number;
+  running: boolean;
+  hideWhenFinished: boolean;
+  /** Colour once a countdown has passed zero. Overrides the element colour. */
+  overrunColor: string;
+  /** Seconds left at which the digits change colour. 0 disables it. */
+  warnAtSeconds: number;
+  warnColor: string;
+}
+
+export interface PresentationSlide {
+  file: string;
+  path: string;
+  /** The words, when this slide is a typed message rather than a picture. */
+  text: string | null;
+}
+
+export interface Presentation {
+  id: string;
+  name: string;
+  slides: PresentationSlide[];
+}
+
+export interface Video {
+  id: string;
+  name: string;
+  kind: "file" | "youtube";
+  path: string | null;
+  youtubeId: string | null;
+  /** Start again at the end. Saved per clip. */
+  looping: boolean;
+  missing: boolean;
+}
+
+export interface Shadow {
+  enabled: boolean;
+  blur: number;
+  offsetX: number;
+  offsetY: number;
+  color: string;
+  opacity: number;
+}
+
+/** Position and size as percentages of the screen, top-left origin. */
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export type ElementId =
+  | "body"
+  | "title"
+  | "number"
+  | "sectionLabel"
+  | "reference"
+  | "translation"
+  | "nextUp"
+  | "timer";
+
+export const SONG_ELEMENTS: ElementId[] = [
+  "body",
+  "title",
+  "number",
+  "sectionLabel",
+  "nextUp",
+  "timer",
+];
+/** The words of a message slide, and the timer that may overlay either. */
+export const MEDIA_ELEMENTS: ElementId[] = ["body", "timer"];
+
+/** The timer as the content itself: the digits, plus a line of text below. */
+export const TIMER_ELEMENTS: ElementId[] = ["timer", "body"];
+
+export const BIBLE_ELEMENTS: ElementId[] = [
+  "body",
+  "reference",
+  "number",
+  "translation",
+  "nextUp",
+  "timer",
+];
+
+export type HAlign = "left" | "center" | "right";
+export type VAlign = "top" | "middle" | "bottom";
+
+/** A plate behind the words; each block of a parallel reading gets one. */
+export interface Panel {
+  color: string;
+  /** 0 hides it. */
+  opacity: number;
+  /** In `em`, so it scales with the auto-fitted type. */
+  padding: number;
+  radius: number;
+  gap: number;
+}
+
+export interface LayoutElement {
+  id: ElementId;
+  visible: boolean;
+  rect: Rect;
+  fontFamily: string;
+  fontWeight: number;
+  /** Ceiling for the auto-fitted size, as a % of screen height. 0 = no cap. */
+  maxFontScale: number;
+  lineHeight: number;
+  letterSpacing: number;
+  uppercase: boolean;
+  italic: boolean;
+  align: HAlign;
+  valign: VAlign;
+  color: string;
+  opacity: number;
+  shadow: Shadow;
+  panel: Panel;
+}
+
+export interface Layout {
+  /** Draw order — later entries sit on top. */
+  elements: LayoutElement[];
+}
+
+export type BackgroundFit = "cover" | "contain" | "fill";
+
+/**
+ * A complete named look. v2 hard-coded exactly two of these as a `mode` enum;
+ * they were only ever two points in the same space.
+ */
+export interface Preset {
+  id: string;
+  name: string;
+  /** Ships with the app: editable and resettable, but not deletable. */
+  builtin: boolean;
+
+  /** Keep the backdrop identical when blanked — a chroma key must not move. */
+  constantBackground: boolean;
+  /** Ignore the source's line breaks and let the words wrap to the box. */
+  collapseLineBreaks: boolean;
+
+  background: string;
+  /** File name inside the Backgrounds folder — an image or a video. */
+  backgroundMedia: string | null;
+  backgroundFit: BackgroundFit;
+  /** Darkens the media so text stays legible, 0–100%. */
+  backgroundDim: number;
+
+  /** The same, for when the output is blanked. */
+  passiveBackground: string;
+  passiveBackgroundMedia: string | null;
+  passiveBackgroundFit: BackgroundFit;
+  passiveBackgroundDim: number;
+
+  song: Layout;
+  bible: Layout;
+  /** Presentation slides and video — only what sits *over* the picture. */
+  media: Layout;
+  /** The countdown shown full screen in its own right. */
+  timer: Layout;
+}
+
+/** One background state, as the picker works with it. */
+export interface Backdrop {
+  media: string | null;
+  fit: BackgroundFit;
+  dim: number;
+}
+
+export interface Background {
+  filename: string;
+  /** Absolute path, for `convertFileSrc`. */
+  path: string;
+  kind: "image" | "video";
+  bytes: number;
+}
+
+export interface DisplayConfig {
+  enabled: boolean;
+  /** Id of the preset this screen renders with. */
+  preset: string;
+}
+
+export interface Settings {
+  version: number;
+  language: string;
+  activeSongbook: string | null;
+  activeTranslation: string | null;
+  /** Shown beneath the main translation, in this order. */
+  secondaryTranslations: string[];
+  blankOnSwitch: boolean;
+  /** Parts of the window the operator can put away. */
+  showStatusBar: boolean;
+  showPreview: boolean;
+  showFilmstrip: boolean;
+  /** Screens served over the network rather than driven by a cable. */
+  webScreens: WebScreen[];
+  /** Which sound device audio and video go out of; empty is the system default. */
+  audioDeviceId: string;
+  /** 0..1, applied to tracks and clips alike. */
+  audioVolume: number;
+  /** Song ids marked as favourites, keyed by songbook name. */
+  favouriteSongs: Record<string, number[]>;
+  /** Sort the song list with favourites at the top. */
+  favouritesFirst: boolean;
+  /** The background picker's grid in order: `#rrggbb` colours and file names
+   *  of imported pictures and clips, mixed. */
+  backgroundOrder: string[];
+  /** Named looks, shared across screens. */
+  presets: Preset[];
+  displays: Record<string, DisplayConfig>;
+}
+
+/** Resolves the preset a screen renders with. */
+export function presetFor(settings: Settings, displayId: string): Preset | null {
+  const id = settings.displays[displayId]?.preset;
+  return settings.presets.find((preset) => preset.id === id) ?? settings.presets[0] ?? null;
+}
+
+/** A screen an operator adds by hand and opens in a browser. */
+export interface WebScreen {
+  id: string;
+  name: string;
+  port: number;
+}
+
+export interface WebScreenStatus {
+  id: string;
+  running: boolean;
+  port: number;
+  /** Addresses to type into a browser, the network one first. */
+  urls: string[];
+  error: string | null;
+}
+
+/** How the clip on screen should be playing. The console decides; every
+ *  display follows. */
+/** A track in the audio library. */
+export interface Track {
+  id: string;
+  name: string;
+  path: string;
+  /** Start again at the end. Saved per track. */
+  looping: boolean;
+  missing: boolean;
+}
+
+export interface Playback {
+  playing: boolean;
+  muted: boolean;
+  looping: boolean;
+  /** Where the clip was, in milliseconds, at `anchorMs`. */
+  positionMs: number;
+  /** Epoch milliseconds when `positionMs` was stamped. */
+  anchorMs: number;
+  revision: number;
+}
+
+export interface Defaults {
+  settings: Settings;
+  display: DisplayConfig;
+}
+
+export interface Bootstrap {
+  settings: Settings;
+  playback: Playback;
+  webScreens: WebScreenStatus[];
+  lanAddress: string | null;
+  displays: DisplayInfo[];
+  live: LiveState;
+  songbooks: SongbookMeta[];
+  translations: TranslationMeta[];
+  dataDir: string;
+  version: string;
+  defaults: Defaults;
+  timer: Timer | null;
+}
+
+/**
+ * One thing the operator can put on screen. Songs and scripture both compile
+ * down to this, so the transport controls and keyboard shortcuts work
+ * identically in either tab.
+ */
+export interface DeckSlide {
+  id: string;
+  /** "Куплет 2", "Приспів", or a verse number — the operator's list label. */
+  label: string;
+  kind: SectionKind | "scripture";
+  /** The text that goes on screen. */
+  part: string;
+  /** What the operator's list shows. Absent means "same as `part`" — it
+   *  differs only when the projected text combines several sources, such as a
+   *  parallel Bible reading, which would make the list unreadable. */
+  summary?: string;
+  /** Song title, or the book name for scripture. */
+  title: string;
+  /** Song number, or the verse number for scripture. */
+  number: string;
+  sectionLabel: string;
+  reference: string;
+  /** Slides sharing a group belong to the same section/verse. */
+  groupId: string;
+  /** Overrides the deck's kind for this slide — a message inside a deck of
+   *  pictures is drawn as words, not as an image. */
+  liveKind?: LiveKind;
+  /** Absolute path, for a presentation slide or a local clip. */
+  mediaPath?: string | null;
+  youtubeId?: string | null;
+  /** A clip that restarts at the end. Carried from the video's own setting. */
+  looping?: boolean;
+}
+
+export interface Deck {
+  source: LiveKind;
+  /** Identifies *what* is loaded, independent of its contents. Reloading a
+   *  deck with the same key keeps the operator's place — editing a song must
+   *  not knock the live slide off the screen. */
+  key: string;
+  title: string;
+  slides: DeckSlide[];
+}

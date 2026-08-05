@@ -1,0 +1,37 @@
+{
+  "name": "lyricverse",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Song & Scripture presentation for worship services",
+  "scripts": {
+    "prepare-resources": "node scripts/prepare-resources.mjs",
+    "dev:vite": "vite",
+    "build:vite": "tsc --noEmit && vite build",
+    "predev": "npm run prepare-resources",
+    "dev": "tauri dev",
+    "prebuild": "npm run prepare-resources",
+    "build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "build-english-bible": "node scripts/build-english-bible.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-dialog": "^2.4.0",
+    "pdfjs-dist": "^4.10.38",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "@types/node": "^26.1.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}
