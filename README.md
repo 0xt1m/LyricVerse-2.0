@@ -8,6 +8,48 @@ independent layout, including a chroma-key lower-third mode for live streaming.
 
 ---
 
+## Installing it
+
+Grab the latest build from
+[Releases](https://github.com/0xt1m/LyricVerse-2.0/releases) and pick the file
+for your machine:
+
+| Machine | Download |
+|---|---|
+| Mac, Apple silicon (M1 and later) | `LyricVerse_<version>_aarch64.dmg` |
+| Mac, Intel | `LyricVerse_<version>_x64.dmg` |
+| Windows | `LyricVerse_<version>_x64-setup.exe` |
+| Linux | `LyricVerse_<version>_amd64.AppImage` |
+
+The `.tar.gz` files alongside them are for the built-in updater, not for
+installing by hand — ignore them.
+
+Once installed, the app looks after its own updates: it checks on startup,
+downloads a new version quietly in the background, and applies it when you
+quit, so an update can never interrupt a service.
+
+### macOS will refuse to open it the first time
+
+The builds are not yet signed with an Apple Developer ID, so Gatekeeper blocks
+them with *"LyricVerse is damaged and can't be opened"* — misleading wording;
+the app is fine, macOS simply cannot identify who built it. Once, after
+installing:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LyricVerse.app
+```
+
+Then open it normally. This is not needed again, including after updates.
+
+### It starts empty
+
+No songbooks or Bible translations ship with the app — they belong to your
+congregation, not to the program. Add your own from **Settings → Songbooks and
+translations**, or import songs from files with **Song → Import Songs…** in the
+menu bar. A public-domain King James Version is included to start with.
+
+---
+
 ## Running it
 
 ```bash
