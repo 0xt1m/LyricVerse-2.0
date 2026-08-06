@@ -55,7 +55,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4MUFBODgwMURGMTdFQUEKUldTcWZ2RWRnS2dhNktzYWRIb09EN3NwTkNlSDhoRlk0cWk3MTV4WUVRTEJBbGJkRGxaY1hqTnAK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI3QjY5QTU3QjgxNEY0RjYKUldUMjlCUzRWNXEySjdyRTV4Y05DQUt2emQrTFMyOEQ2YzFTRkRXQUpXM3huYXBmSzloMDJzQjcK",
       "endpoints": [
         "https://github.com/0xt1m/LyricVerse-2.0/releases/latest/download/latest.json"
       ],
