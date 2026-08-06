@@ -4,7 +4,7 @@
 // The source is this project's own `seed/` directory, so the folder is
 // self-contained and can be moved or cloned on its own. The v1 tree next door
 // is still read as a fallback, for a checkout that predates `seed/`.
-import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,8 +42,33 @@ async function copyMatching(fromDir, toDir, extensions, { skip = [] } = {}) {
   return copied;
 }
 
+/**
+ * A release ships with an empty library.
+ *
+ * Songbooks and Bible translations belong to a congregation, not to the
+ * program: they are often licensed text that must not be redistributed, and a
+ * fresh install is expected to be filled from Settings. CI sets this, so it
+ * holds even when a release is built on a machine whose own `seed/` is full.
+ */
+const emptyRelease = process.env.LYRICVERSE_EMPTY_SEED === "1";
+
 async function main() {
+  // Cleared, not merged into. Whatever a previous run staged is not evidence
+  // of what this one should ship — a translation removed from `seed/`, or a
+  // build switched to an empty release, would otherwise leave the old file
+  // sitting in the bundle.
+  await rm(seedRoot, { recursive: true, force: true });
   await mkdir(seedRoot, { recursive: true });
+
+  if (emptyRelease) {
+    await writeFile(
+      join(seedRoot, "SEED_INFO.json"),
+      JSON.stringify({ songbooks: [], translations: [], empty: true }, null, 2) + "\n",
+      "utf8",
+    );
+    console.log("[prepare-resources] LYRICVERSE_EMPTY_SEED=1 — shipping no songbooks or translations.");
+    return;
+  }
 
   const songbooks = await copyMatching(
     sourceDir("Songbooks", "Songbooks"),
@@ -59,16 +84,11 @@ async function main() {
     { skip: ["1.SQLite3"] },
   );
 
-  // The English module is generated, not copied from v1. Build it on first run
-  // so a fresh clone gets a complete library; a failure here (offline) must not
-  // break the build.
-  if (!existsSync(join(localSeed, "BibleTranslations", "KJV.SQLite3"))) {
-    try {
-      await import("./build-english-bible.mjs");
-    } catch (err) {
-      console.warn(`[prepare-resources] skipped the English Bible: ${err.message}`);
-    }
-  }
+  // Note: no Bible module is generated here any more. Releases ship with no
+  // scripture and no songbooks at all — see `emptyRelease` below — and the
+  // generator needed the network and the `sqlite3` CLI, neither of which a
+  // Windows runner has. `npm run build-english-bible` still builds one by hand
+  // for anyone who wants it locally.
 
   for (const [dir, files, jsonName] of [
     [join(seedRoot, "Songbooks"), songbooks, "songbooks.json"],

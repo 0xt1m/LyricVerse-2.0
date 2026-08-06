@@ -43,10 +43,11 @@ Then open it normally. This is not needed again, including after updates.
 
 ### It starts empty
 
-No songbooks or Bible translations ship with the app — they belong to your
-congregation, not to the program. Add your own from **Settings → Songbooks and
-translations**, or import songs from files with **Song → Import Songs…** in the
-menu bar. A public-domain King James Version is included to start with.
+No songbooks and no Bible translations ship with the app — they belong to your
+congregation, not to the program, and much of that text may not be
+redistributed. Add your own from **Settings → Songbooks and translations**,
+which reads MyBible `.SQLite3` modules and v1 `.db` songbooks, or import songs
+from files with **Song → Import Songs…** in the menu bar.
 
 ---
 
