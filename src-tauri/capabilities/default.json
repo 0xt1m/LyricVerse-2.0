@@ -16,6 +16,9 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:webview:allow-internal-toggle-devtools",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

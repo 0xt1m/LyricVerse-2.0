@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { EVENT, api, errorMessage, on } from "../api";
 import type {
   Deck,
+  Plan,
+  PlanEntry,
   Defaults,
   DisplayConfig,
   DisplayInfo,
@@ -18,6 +20,7 @@ import type {
 import { translate } from "../lib/i18n";
 import { slideToLive } from "../lib/deck";
 import { stamped } from "../lib/playback";
+import { newPlan, planEntryId, resolvePlanEntry } from "../lib/plan";
 
 /** Every translation on screen, not just the main one. */
 export function translationLabel(settings: Settings): string {
@@ -128,6 +131,47 @@ interface Store {
   sidePreviewDisplayId: string | null;
   setSidePreviewDisplay: (id: string | null) => void;
 
+  /**
+   * The running order being built, saved or not.
+   *
+   * Held apart from `plans`, which is what is on disk: a plan is edited freely
+   * and only written when the operator says so, the same as any document.
+   */
+  plan: Plan;
+  /** Every saved plan, newest first. */
+  plans: Plan[];
+  addToPlan: (entry: Omit<PlanEntry, "id">) => void;
+  removeFromPlan: (entryId: string) => void;
+  movePlanEntry: (from: number, to: number) => void;
+  setPlanNote: (entryId: string, note: string) => void;
+  /**
+   * Opens a plan entry where it lives — the song on the Songs tab, the passage
+   * on the Bible tab — with `live` deciding whether it also goes to the
+   * screens. Tracks are played rather than shown.
+   */
+  openPlanEntry: (entryId: string, live?: boolean) => Promise<void>;
+  /**
+   * What a tab has been asked to select, for the tabs that hold a selection of
+   * their own. Cleared by whichever tab takes it.
+   */
+  openRequest: PlanEntry | null;
+  clearOpenRequest: () => void;
+  startNewPlan: (name: string) => void;
+  renamePlan: (name: string) => void;
+  openPlan: (id: string) => void;
+  deletePlan: (id: string) => Promise<void>;
+  refreshPlans: () => Promise<void>;
+
+  /**
+   * A menu action waiting for the Songs tab to carry out.
+   *
+   * The menu bar cannot open a file picker or know which songbook is open, so
+   * a click there arrives here and the tab runs the same code its own buttons
+   * do — one implementation, two ways in.
+   */
+  songCommand: "import" | "exportJson" | "exportTxt" | null;
+  clearSongCommand: () => void;
+
   /** Everything shown this session, newest first. */
   history: HistoryEntry[];
   /** Puts a past slide back on screen, bringing its deck back if it has been
@@ -185,7 +229,7 @@ interface Store {
 
 const EMPTY_SETTINGS: Settings = {
   version: 0,
-  language: "uk",
+  language: "en",
   activeSongbook: null,
   activeTranslation: null,
   secondaryTranslations: [],
@@ -252,6 +296,67 @@ function scheduleVolumeSave(id: string, volume: number, get: () => Store) {
       api.setTrackVolume(id, volume).catch((error) => get().reportError(error));
     }, VOLUME_SAVE_MS),
   );
+}
+
+/** Which tab each kind of plan entry belongs to. */
+const TAB_FOR_PLAN: Record<PlanEntry["kind"], Tab> = {
+  song: "songs",
+  bible: "bible",
+  presentation: "presentations",
+  video: "video",
+  audio: "audio",
+};
+
+// --- Plan autosave ----------------------------------------------------------
+// A running order is worked on continuously — dragging a song up, adding one
+// more, typing a note — and asking someone to remember to save it is asking
+// them to lose it. Written shortly after the last change instead.
+
+const PLAN_SAVE_MS = 600;
+let planTimer: number | undefined;
+
+/** A plan with no name yet is called after the day it was made. */
+function planName(plan: Plan, get: () => Store): string {
+  const named = plan.name.trim();
+  if (named) return named;
+  return get().t("plan.defaultName", { date: new Date().toLocaleDateString() });
+}
+
+async function writePlan(get: () => Store) {
+  const plan = useStore.getState().plan;
+  // An empty, unnamed plan is not a document yet — saving it would litter the
+  // list with blanks every time somebody pressed "new".
+  if (plan.entries.length === 0 && !plan.name.trim()) return;
+  try {
+    const saved = await api.savePlan({ ...plan, name: planName(plan, get) });
+    // Only the identity and name are taken back: the entries may have moved on
+    // while this was in flight, and the operator's list must not snap back.
+    useStore.setState((state) =>
+      state.plan.id === saved.id
+        ? { plan: { ...state.plan, name: saved.name, updatedMs: saved.updatedMs } }
+        : {},
+    );
+    await get().refreshPlans();
+  } catch (error) {
+    get().reportError(error);
+  }
+}
+
+function schedulePlanSave(get: () => Store) {
+  if (planTimer !== undefined) window.clearTimeout(planTimer);
+  planTimer = window.setTimeout(() => {
+    planTimer = undefined;
+    void writePlan(get);
+  }, PLAN_SAVE_MS);
+}
+
+/** Persist now — used when the plan being edited is about to be replaced. */
+function flushPlan(get: () => Store) {
+  if (planTimer !== undefined) {
+    window.clearTimeout(planTimer);
+    planTimer = undefined;
+  }
+  void writePlan(get);
 }
 
 let toastSeq = 0;
@@ -348,6 +453,10 @@ export const useStore = create<Store>((set, get) => ({
   liveIndex: null,
   blanked: false,
   libraryRevision: 0,
+  plan: newPlan(""),
+  plans: [],
+  openRequest: null,
+  songCommand: null,
   previewDisplayId: null,
   sidePreviewDisplayId: null,
   history: [],
@@ -389,6 +498,23 @@ export const useStore = create<Store>((set, get) => ({
       set((state) => ({ libraryRevision: state.libraryRevision + 1 }));
       void get().refreshLibrary();
     });
+
+    // Menu actions the window has to run. The tab is brought forward first,
+    // so the file picker never opens over a tab that has nothing to do with
+    // what is about to happen.
+    void on<string>(EVENT.menu, (id) => {
+      const command =
+        id === "songs.import"
+          ? "import"
+          : id === "songs.exportJson"
+            ? "exportJson"
+            : id === "songs.exportTxt"
+              ? "exportTxt"
+              : null;
+      if (command) set({ tab: "songs", songCommand: command });
+    });
+
+    void get().refreshPlans();
   },
 
   setTab: (tab) => set({ tab }),
@@ -640,6 +766,134 @@ export const useStore = create<Store>((set, get) => ({
       if (payload.kind === "video") {
         await get().patchPlayback({ playing: true, looping: !!slide?.looping }, 0);
       }
+    } catch (error) {
+      get().reportError(error);
+    }
+  },
+
+  /**
+   * Adds something to the running order.
+   *
+   * The plan is a document being edited, so this only touches memory — it is
+   * written when the operator saves, and the dirty flag is what tells them
+   * there is something to write.
+   */
+  addToPlan(entry) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: [...state.plan.entries, { ...entry, id: planEntryId() } as PlanEntry],
+      },
+    }));
+    schedulePlanSave(get);
+    get().toast(get().t("plan.added", { name: entry.label }), "success");
+  },
+
+  removeFromPlan(entryId) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.filter((entry) => entry.id !== entryId),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  movePlanEntry(from, to) {
+    set((state) => {
+      const entries = [...state.plan.entries];
+      if (from < 0 || to < 0 || from >= entries.length || to >= entries.length) return {};
+      const [moved] = entries.splice(from, 1);
+      if (!moved) return {};
+      entries.splice(to, 0, moved);
+      return { plan: { ...state.plan, entries } };
+    });
+    schedulePlanSave(get);
+  },
+
+  setPlanNote(entryId, note) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.map((entry) =>
+          entry.id === entryId ? { ...entry, note } : entry,
+        ),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  async openPlanEntry(entryId, live = false) {
+    const entry = get().plan.entries.find((item) => item.id === entryId);
+    if (!entry) return;
+    try {
+      const action = await resolvePlanEntry(entry, get().settings);
+      // Gone from the library since it was added. The line stays in the plan
+      // — an operator needs to see that it is missing, not have it vanish on
+      // the morning it was needed.
+      if (!action) {
+        get().toast(get().t("plan.missing", { name: entry.label }), "error");
+        return;
+      }
+      if (action.kind === "track") {
+        set({ tab: "audio" });
+        get().playTrack(action.track);
+        return;
+      }
+
+      // Opened where it lives, not just pushed at the screens: the operator
+      // wants the song in front of them so they can pick a verse, skip a
+      // chorus, see what is in it. The deck is loaded here as well as by the
+      // tab, which is harmless — reloading the same key keeps the place.
+      await get().loadDeck(action.deck);
+      set({ tab: TAB_FOR_PLAN[entry.kind], openRequest: entry });
+      if (live) await get().go(0);
+    } catch (error) {
+      get().reportError(error);
+    }
+  },
+
+  clearOpenRequest: () => set({ openRequest: null }),
+
+  clearSongCommand: () => set({ songCommand: null }),
+
+  startNewPlan: (name) => {
+    // Anything pending belongs to the plan being left behind, so it is written
+    // before the new one takes its place.
+    flushPlan(get);
+    set({ plan: newPlan(name) });
+  },
+
+  renamePlan(name) {
+    set((state) => ({ plan: { ...state.plan, name } }));
+    schedulePlanSave(get);
+  },
+
+  openPlan: (id) => {
+    flushPlan(get);
+    const found = get().plans.find((item) => item.id === id);
+    if (found) set({ plan: found });
+  },
+
+  async deletePlan(id) {
+    try {
+      await api.deletePlan(id);
+      await get().refreshPlans();
+      // The open plan was the one deleted: keep its contents on screen but
+      // detach it, so nothing the operator was looking at disappears and the
+      // next save creates it afresh.
+      // The open plan was the one deleted: keep what is on screen but give it
+      // a fresh identity, so the next change writes a new plan rather than
+      // resurrecting the deleted one.
+      if (get().plan.id === id) set({ plan: { ...get().plan, id: newPlan("").id } });
+    } catch (error) {
+      get().reportError(error);
+    }
+  },
+
+  async refreshPlans() {
+    try {
+      set({ plans: await api.listPlans() });
     } catch (error) {
       get().reportError(error);
     }

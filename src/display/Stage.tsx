@@ -128,6 +128,22 @@ export function Stage({
           if (isMedia) return null;
           const text = contentOf(element.id, live);
           if (!text.trim()) return null;
+          // "Next up" can be a picture of the coming slide instead of a line
+          // of its words — a musician looking across at a confidence screen
+          // recognises the shape of a verse far faster than they read it.
+          if (element.id === "nextUp" && preset.nextPreview) {
+            return (
+              <NextPreview
+                key={element.id}
+                element={element}
+                body={layout.elements.find((item) => item.id === "body") ?? element}
+                text={text}
+                preset={preset}
+                height={height}
+                collapse={preset.collapseLineBreaks}
+              />
+            );
+          }
           return (
             <StageElement
               key={element.id}
@@ -138,6 +154,78 @@ export function Stage({
             />
           );
         })}
+    </div>
+  );
+}
+
+/**
+ * The coming slide, drawn small inside the "next up" element's own box.
+ *
+ * A miniature of the real thing rather than a second `Stage`: it borrows the
+ * body element's typography and the preset's backdrop, so the shape of the
+ * verse — how many lines, where they break — is the shape it will have when it
+ * goes up. Nesting a whole Stage here would drag in the backgrounds, the timer
+ * and the media player for a thumbnail, and would recurse into this very
+ * branch.
+ *
+ * It reuses the element's rect, so it is positioned and resized in the layout
+ * editor like everything else, with no new geometry to learn.
+ */
+function NextPreview({
+  element,
+  body,
+  text,
+  preset,
+  height,
+  collapse,
+}: {
+  element: LayoutElement;
+  /** The element the coming slide will actually be drawn in. */
+  body: LayoutElement;
+  text: string;
+  preset: Preset;
+  height: number;
+  collapse?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${element.rect.x}%`,
+        top: `${element.rect.y}%`,
+        width: `${element.rect.width}%`,
+        height: `${element.rect.height}%`,
+        opacity: element.opacity,
+        // Framed and set on the preset's own backdrop, so it reads as a small
+        // screen rather than as more text that has drifted into a corner.
+        background: preset.background,
+        border: `${Math.max(1, height * 0.0015)}px solid ${element.color}`,
+        borderRadius: height * 0.008,
+        overflow: "hidden",
+        pointerEvents: "none",
+      }}
+    >
+      <AutoFitText
+        text={text}
+        maxFontSize={height * 0.05}
+        lineHeight={body.lineHeight}
+        align={body.align}
+        valign="middle"
+        signature={`next:${collapse}:${element.rect.width}:${element.rect.height}`}
+        style={{
+          position: "absolute",
+          // A margin of its own, in the miniature's terms rather than the
+          // screen's, so the words are not jammed against the frame.
+          inset: "6%",
+          color: element.color,
+          fontFamily: body.fontFamily,
+          fontWeight: body.fontWeight,
+          fontStyle: body.italic ? "italic" : "normal",
+          letterSpacing: `${body.letterSpacing}em`,
+        }}
+      >
+        {collapse ? text.replace(/\s*\n\s*/g, " ").trim() : text}
+      </AutoFitText>
     </div>
   );
 }

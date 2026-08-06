@@ -2355,3 +2355,152 @@ button {
   min-width: 3ch;
   text-align: right;
 }
+
+/* --- Plan / history tabs in the side panel -------------------------------- */
+
+.sidepanel__tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidepanel__tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  flex: 1;
+  min-width: 0;
+  padding: 8px 6px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Drawn inside the button so switching tabs cannot shift the row's height. */
+  box-shadow: inset 0 -2px 0 transparent;
+  transition: color 0.12s, box-shadow 0.12s, background 0.12s;
+}
+
+.sidepanel__tab:hover {
+  color: var(--text-muted);
+  background: var(--panel-raised);
+}
+
+.sidepanel__tab[aria-selected="true"] {
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.sidepanel__count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* A thin strip of controls under the tabs — the plan's name and its
+   save/open/new buttons, or the history's clear. */
+.sidepanel__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  min-height: 34px;
+}
+
+.plan__name {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan__name:hover {
+  background: var(--panel-raised);
+}
+
+/* Unsaved work. A dot, not a word: it has to be noticeable without taking a
+   line this panel cannot spare. */
+.plan__dirty {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+
+.plan__row {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 6px;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.plan__row:hover {
+  background: var(--panel-raised);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.plan__index {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  min-width: 1.6ch;
+  text-align: right;
+}
+
+.plan__glyph {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+/* Lifted while it is being dragged to a new place in the running order. */
+.plan__row[data-dragging] {
+  opacity: 0.45;
+  border-color: var(--accent-line);
+}
+
+/* One of several songs picked for a bulk action, as against the one open in
+   the editor — filled rather than outlined, exactly as the slide tiles do it. */
+.row[data-marked] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}

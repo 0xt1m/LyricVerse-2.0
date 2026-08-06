@@ -13,6 +13,7 @@ export function BibleTab() {
   const t = useStore((s) => s.t);
   const settings = useStore((s) => s.settings);
   const translations = useStore((s) => s.translations);
+  const addToPlan = useStore((s) => s.addToPlan);
   const libraryRevision = useStore((s) => s.libraryRevision);
   const deck = useStore((s) => s.deck);
   const cursor = useStore((s) => s.cursor);
@@ -32,6 +33,20 @@ export function BibleTab() {
   const [verses, setVerses] = useState<VerseRow[]>([]);
   const [parallel, setParallel] = useState<ParallelTranslation[]>([]);
   const [range, setRange] = useState<{ start: number; end: number } | null>(null);
+  const openRequest = useStore((s) => s.openRequest);
+  const clearOpenRequest = useStore((s) => s.clearOpenRequest);
+
+  // Opened from the plan: go to the passage it names. A single verse is a
+  // cursor rather than a range, so the operator can carry on down the chapter
+  // from there instead of being pinned to one slide.
+  useEffect(() => {
+    if (openRequest?.kind !== "bible") return;
+    const { book, chapter: wantedChapter, start, end } = openRequest.ref;
+    setBookNumber(book);
+    setChapter(wantedChapter);
+    setRange(end > start ? { start, end } : null);
+    clearOpenRequest();
+  }, [openRequest, clearOpenRequest]);
 
   const [bookFilter, setBookFilter] = useState("");
   const [quick, setQuick] = useState("");
@@ -480,6 +495,29 @@ export function BibleTab() {
                   live={index === liveIndex}
                   menu={[
                     { label: t("menu.show"), icon: "eye", onSelect: () => void go(index) },
+                    {
+                      label: t("plan.add"),
+                      icon: "plus",
+                      // A selected range goes in as one entry; otherwise the
+                      // verse under the cursor. Either way it is a reference —
+                      // the passage is fetched again when the plan calls for it.
+                      onSelect: () => {
+                        if (!translation || bookNumber === null || chapter === null) return;
+                        const verse = Number(slide.label) || 1;
+                        addToPlan({
+                          kind: "bible",
+                          label: slide.reference || `${book?.longName ?? ""} ${chapter}:${verse}`,
+                          note: "",
+                          ref: {
+                            translation,
+                            book: bookNumber,
+                            chapter,
+                            start: range ? range.start : verse,
+                            end: range ? range.end : verse,
+                          },
+                        });
+                      },
+                    },
                     {
                       label: t("menu.copyText"),
                       icon: "copy",

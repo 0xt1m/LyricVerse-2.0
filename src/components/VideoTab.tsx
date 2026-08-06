@@ -33,6 +33,7 @@ export function VideoTab() {
   const reportError = useStore((s) => s.reportError);
   const toast = useStore((s) => s.toast);
   const openMenu = useContextMenu();
+  const addToPlan = useStore((s) => s.addToPlan);
   const dialogs = useDialogs();
   const playback = useStore((s) => s.playback);
   const patchPlayback = useStore((s) => s.patchPlayback);
@@ -249,6 +250,17 @@ export function VideoTab() {
                   icon: "eye",
                   disabled: video.missing,
                   onSelect: () => void show(video),
+                },
+                {
+                  label: t("plan.add"),
+                  icon: "plus",
+                  onSelect: () =>
+                    addToPlan({
+                      kind: "video",
+                      label: video.name,
+                      note: "",
+                      ref: { videoId: video.id },
+                    }),
                 },
                 { label: t("songbook.rename"), icon: "pencil", onSelect: () => rename(video) },
                 {

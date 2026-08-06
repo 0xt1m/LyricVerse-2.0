@@ -1446,6 +1446,13 @@ function PresetBehaviour({
             label={t("preset.constantBackground")}
           />
         </Field>
+        <Field hint={t("preset.nextPreviewHint")}>
+          <Switch
+            checked={preset.nextPreview}
+            onChange={(nextPreview) => onChange({ nextPreview })}
+            label={t("preset.nextPreview")}
+          />
+        </Field>
       </div>
     </div>
   );

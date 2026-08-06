@@ -11,6 +11,7 @@ pub const BACKGROUNDS_DIR: &str = "Backgrounds";
 pub const PRESENTATIONS_DIR: &str = "Presentations";
 pub const VIDEOS_DIR: &str = "Videos";
 pub const AUDIO_DIR: &str = "Audio";
+pub const PLANS_DIR: &str = "Plans";
 
 /// Writable root for everything the user owns: songbooks, translations,
 /// settings. Kept outside the app bundle so updating the app can never wipe a
@@ -46,6 +47,10 @@ pub fn videos_dir(app: &AppHandle) -> Result<PathBuf> {
 
 pub fn audio_dir(app: &AppHandle) -> Result<PathBuf> {
     subdir(app, AUDIO_DIR)
+}
+
+pub fn plans_dir(app: &AppHandle) -> Result<PathBuf> {
+    subdir(app, PLANS_DIR)
 }
 
 pub fn settings_file(app: &AppHandle) -> Result<PathBuf> {

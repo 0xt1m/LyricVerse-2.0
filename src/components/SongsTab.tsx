@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
-import type { Section, SectionKind, Song, SongSummary } from "../api/types";
+import type { Section, SectionKind, Song, SongFormat, SongSummary } from "../api/types";
 import { useStore } from "../app/store";
 import { songDeck } from "../lib/deck";
 import { useGridReorder } from "../lib/dragReorder";
@@ -36,7 +37,11 @@ export function SongsTab() {
   const t = useStore((s) => s.t);
   const settings = useStore((s) => s.settings);
   const songbooks = useStore((s) => s.songbooks);
+  const addToPlan = useStore((s) => s.addToPlan);
   const libraryRevision = useStore((s) => s.libraryRevision);
+  const openMenu = useContextMenu();
+  const songCommand = useStore((s) => s.songCommand);
+  const clearSongCommand = useStore((s) => s.clearSongCommand);
   const deck = useStore((s) => s.deck);
   const cursor = useStore((s) => s.cursor);
   const liveIndex = useStore((s) => s.liveIndex);
@@ -49,6 +54,18 @@ export function SongsTab() {
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const openRequest = useStore((s) => s.openRequest);
+  const clearOpenRequest = useStore((s) => s.clearOpenRequest);
+
+  // Opened from the plan. The songbook is switched too, since a plan may point
+  // at a song in a book the operator does not currently have open.
+  useEffect(() => {
+    if (openRequest?.kind !== "song") return;
+    const { songbook: wanted, songId } = openRequest.ref;
+    if (wanted && wanted !== settings.activeSongbook) void patchSettings({ activeSongbook: wanted });
+    setSelectedId(songId);
+    clearOpenRequest();
+  }, [openRequest, settings.activeSongbook, patchSettings, clearOpenRequest]);
   const [song, setSong] = useState<Song | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [managing, setManaging] = useState(false);
@@ -59,6 +76,7 @@ export function SongsTab() {
     settings.activeSongbook && songbooks.some((b) => b.name === settings.activeSongbook)
       ? settings.activeSongbook
       : (songbooks[0]?.name ?? null);
+
 
   // --- Auto-save ---------------------------------------------------------
   // The song is edited locally and written behind a debounce. A pending write
@@ -220,6 +238,20 @@ export function SongsTab() {
     return [...liked, ...rest];
   }, [filtered, favourites, settings.favouritesFirst]);
 
+  /**
+   * Picking several songs at once, for deleting or exporting them together.
+   *
+   * The same helper the slide grid uses, so the conventions are the ones every
+   * file manager has: a plain click picks one, ⌘-click toggles one, Shift takes
+   * the range.
+   *
+   * Indexed against the list as displayed — filtered and favourites-first —
+   * because that is what a Shift-range has to follow. Reset when the songbook
+   * or the search changes, since either makes the old indices point at
+   * different songs.
+   */
+  const picked = useTileSelection(ordered.length, `${songbook}:${query}`);
+
   // --- Section editing ---------------------------------------------------
 
   /** "Куплет 1", "Приспів" — by section id, so repeats share one label. */
@@ -365,6 +397,43 @@ export function SongsTab() {
     }
   };
 
+  /** Deletes everything picked, after asking once rather than once each. */
+  const deleteSongs = async (targets: SongSummary[]) => {
+    if (!songbook || targets.length === 0) return;
+    if (targets.length === 1) {
+      await deleteSong(targets[0]);
+      return;
+    }
+    const ok = await dialogs.confirm({
+      title: t("songs.delete"),
+      message: t("songs.deleteManyConfirm", { n: targets.length }),
+      confirmLabel: t("common.delete"),
+      danger: true,
+    });
+    if (!ok) return;
+    pendingSave.current = null;
+    const gone = new Set<number>();
+    try {
+      for (const target of targets) {
+        await api.deleteSong(songbook, target.id);
+        gone.add(target.id);
+      }
+    } catch (error) {
+      reportError(error);
+    }
+    // Applied even if one of them threw, so the list matches what is actually
+    // left rather than what was asked for.
+    if (gone.size > 0) {
+      setSongs((current) => current.filter((item) => !gone.has(item.id)));
+      picked.clear();
+      if (selectedId !== null && gone.has(selectedId)) {
+        setSelectedId(null);
+        setSong(null);
+        await loadDeck(null);
+      }
+    }
+  };
+
   const deleteSong = async (target?: SongSummary) => {
     const victim = target ?? (song ? { id: song.id, title: song.title } : null);
     if (!songbook || !victim) return;
@@ -406,17 +475,141 @@ export function SongsTab() {
     }
   };
 
-  const songMenu = (item: SongSummary): MenuEntry[] => [
+  /**
+   * Reads songs in from files.
+   *
+   * Several at once by design — a songbook arrives as a folder of text files
+   * far more often than as one — and a file that cannot be read is reported
+   * rather than abandoning the rest of the batch.
+   */
+  const importSongs = async () => {
+    if (!songbook) return;
+    const picked = await open({
+      multiple: true,
+      filters: [
+        { name: t("songs.fileFilter"), extensions: ["json", "txt"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    const paths = typeof picked === "string" ? [picked] : Array.isArray(picked) ? picked : [];
+    if (paths.length === 0) return;
+    try {
+      const report = await api.importSongs(songbook, paths);
+      // No reload here: the backend emits its library event, which the store
+      // turns into a revision bump, which the list is already keyed on.
+      toast(t("songs.imported", { n: report.imported }), "success");
+      // Named individually: "3 of 40 failed" without saying which is not a
+      // report, it is a puzzle.
+      if (report.failed.length > 0) toast(report.failed.join("\n"), "error");
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  /** Writes out every song in the open songbook. */
+  const exportSongs = async (format: SongFormat, ids?: number[]) => {
+    if (!songbook) return;
+    const chosen = ids ?? songs.map((item) => item.id);
+    if (chosen.length === 0) return;
+
+    // JSON is one file, so it asks where to save it; text is a file per song,
+    // so it asks for somewhere to put them.
+    const destination =
+      format === "json"
+        ? await save({
+            defaultPath: `${songbook}.json`,
+            filters: [{ name: "JSON", extensions: ["json"] }],
+          })
+        : await open({ directory: true, multiple: false });
+    if (typeof destination !== "string" || !destination) return;
+
+    try {
+      const written = await api.exportSongs(songbook, chosen, format, destination);
+      toast(t("songs.exported", { n: written.length }), "success");
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
+  // Sent from the Song menu in the menu bar. It runs the same handlers the
+  // buttons beside the songbook picker do, so the two cannot drift apart.
+  useEffect(() => {
+    if (!songCommand) return;
+    clearSongCommand();
+    if (songCommand === "import") void importSongs();
+    else void exportSongs(songCommand === "exportJson" ? "json" : "txt");
+  }, [songCommand]);
+
+  /** The songs a bulk action should act on, given the row clicked on. */
+  /** Ids of everything picked, in the order they appear. */
+  const selectedIds = () =>
+    picked.ordered().map((i) => ordered[i]?.id).filter((id): id is number => id !== undefined);
+
+  const targetsFor = (item: SongSummary): SongSummary[] => {
+    const index = ordered.findIndex((candidate) => candidate.id === item.id);
+    if (!picked.isMulti || !picked.selected.has(index)) return [item];
+    return picked.ordered().map((i) => ordered[i]).filter((x): x is SongSummary => !!x);
+  };
+
+  const songMenu = (item: SongSummary): MenuEntry[] => {
+    const targets = targetsFor(item);
+    if (targets.length > 1) {
+      return [
+        {
+          label: t("songs.exportSelected", { n: targets.length }),
+          icon: "copy",
+          onSelect: () => void exportSongs("txt", targets.map((x) => x.id)),
+        },
+        {
+          label: t("songs.exportSelectedJson", { n: targets.length }),
+          icon: "copy",
+          onSelect: () => void exportSongs("json", targets.map((x) => x.id)),
+        },
+        "separator",
+        {
+          label: t("songs.deleteSelected", { n: targets.length }),
+          icon: "trash",
+          danger: true,
+          onSelect: () => void deleteSongs(targets),
+        },
+      ];
+    }
+    return [
     {
       label: t("songs.favourite"),
       checked: favourites.has(item.id),
       onSelect: () => toggleFavourite(item.id),
     },
     { label: t("menu.show"), icon: "eye", onSelect: () => setSelectedId(item.id) },
+    {
+      label: t("plan.add"),
+      icon: "plus",
+      // The reference, not the song: the plan looks it up again when it is
+      // wanted, so a correction made tonight is in Sunday's running order.
+      onSelect: () =>
+        songbook &&
+        addToPlan({
+          kind: "song",
+          label: item.title,
+          note: "",
+          ref: { songbook, songId: item.id },
+        }),
+    },
     { label: t("menu.duplicate"), icon: "copy", onSelect: () => void duplicateSong(item.id) },
+    {
+      label: t("songs.exportOne"),
+      icon: "copy",
+      onSelect: () => void exportSongs("txt", [item.id]),
+    },
     "separator",
-    { label: t("songs.delete"), icon: "trash", danger: true, onSelect: () => void deleteSong(item) },
-  ];
+      {
+        label: t("songs.delete"),
+        icon: "trash",
+        danger: true,
+        onSelect: () => void deleteSong(item),
+      },
+    ];
+  };
 
   const songDeckActive = deck?.source === "song";
   const selection = useTileSelection(songDeckActive ? deck.slides.length : 0, song?.id);
@@ -496,13 +689,27 @@ export function SongsTab() {
               />
             ) : (
               <div className="list">
-                {ordered.map((item) => (
+                {ordered.map((item, index) => (
                   <SongRow
                     key={item.id}
                     item={item}
                     selected={item.id === selectedId}
+                    marked={picked.isMulti && picked.selected.has(index)}
                     favourite={favourites.has(item.id)}
-                    onSelect={() => setSelectedId(item.id)}
+                    onSelect={(event) => {
+                      // A modifier click is about building a selection, not
+                      // about opening a song — so the editor stays where it is.
+                      if (picked.handleClick(index, event)) return;
+                      picked.selectOnly(index);
+                      setSelectedId(item.id);
+                    }}
+                    onContextSelect={() => {
+                      // Right-clicking inside a selection acts on the whole of
+                      // it; outside one, it moves to the row under the cursor.
+                      if (picked.isMulti && picked.selected.has(index)) return;
+                      picked.selectOnly(index);
+                      setSelectedId(item.id);
+                    }}
                     onFavourite={() => toggleFavourite(item.id)}
                     menu={songMenu(item)}
                   />
@@ -524,6 +731,47 @@ export function SongsTab() {
                 </option>
               ))}
             </select>
+            <button
+              className="btn btn--icon"
+              title={t("songs.transfer")}
+              disabled={!songbook}
+              onClick={(event) =>
+                openMenu(event, [
+                  { label: t("songs.import"), icon: "plus", onSelect: () => void importSongs() },
+                  "separator",
+                  // What is picked takes precedence over the whole book: if the
+                  // operator has gone to the trouble of selecting, that is what
+                  // they mean by "export".
+                  ...(picked.isMulti
+                    ? ([
+                        {
+                          label: t("songs.exportSelectedJson", { n: picked.selected.size }),
+                          icon: "copy" as const,
+                          onSelect: () => void exportSongs("json", selectedIds()),
+                        },
+                        {
+                          label: t("songs.exportSelected", { n: picked.selected.size }),
+                          icon: "copy" as const,
+                          onSelect: () => void exportSongs("txt", selectedIds()),
+                        },
+                        "separator" as const,
+                      ] as const)
+                    : []),
+                  {
+                    label: t("songs.exportBookJson"),
+                    icon: "copy",
+                    onSelect: () => void exportSongs("json"),
+                  },
+                  {
+                    label: t("songs.exportBookTxt"),
+                    icon: "copy",
+                    onSelect: () => void exportSongs("txt"),
+                  },
+                ])
+              }
+            >
+              <Icon name="arrowDown" />
+            </button>
             <button
               className="btn btn--icon"
               onClick={() => setManaging(true)}
@@ -762,15 +1010,20 @@ function SectionGrid({
 function SongRow({
   item,
   selected,
+  marked,
   favourite,
   onSelect,
+  onContextSelect,
   onFavourite,
   menu,
 }: {
   item: SongSummary;
   selected: boolean;
+  /** One of several picked for a bulk action, rather than the one being edited. */
+  marked: boolean;
   favourite: boolean;
-  onSelect: () => void;
+  onSelect: (event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
+  onContextSelect: () => void;
   onFavourite: () => void;
   menu: MenuEntry[];
 }) {
@@ -781,12 +1034,13 @@ function SongRow({
       <button
         ref={ref as React.Ref<HTMLButtonElement>}
         className="row"
-        aria-selected={selected}
+        aria-selected={selected || marked}
+        data-marked={marked || undefined}
         onClick={onSelect}
         onContextMenu={(event) => {
           // Right-clicking acts on the row under the cursor, so selection
           // follows the menu rather than the other way round.
-          onSelect();
+          onContextSelect();
           openMenu(event, menu);
         }}
       >

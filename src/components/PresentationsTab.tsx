@@ -41,11 +41,21 @@ export function PresentationsTab() {
   const reportError = useStore((s) => s.reportError);
   const toast = useStore((s) => s.toast);
   const openMenu = useContextMenu();
+  const addToPlan = useStore((s) => s.addToPlan);
   const dialogs = useDialogs();
   const imageExtensions = useImageExtensions();
 
   const [decks, setDecks] = useState<Presentation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const openRequest = useStore((s) => s.openRequest);
+  const clearOpenRequest = useStore((s) => s.clearOpenRequest);
+
+  // Opened from the plan.
+  useEffect(() => {
+    if (openRequest?.kind !== "presentation") return;
+    setActiveId(openRequest.ref.presentationId);
+    clearOpenRequest();
+  }, [openRequest, clearOpenRequest]);
   const [busy, setBusy] = useState<string | null>(null);
 
   const active = decks.find((item) => item.id === activeId) ?? null;
@@ -370,8 +380,12 @@ export function PresentationsTab() {
             disabled={!!busy}
             title={t("presentation.importPdfHint")}
           >
-            <Icon name="folder" size={12} />
-            {t("presentation.importPdf")}
+            {/* Just "+ PDF" here: it sits beside "Blank" in a narrow header,
+                and the tooltip carries the explanation. The button in the
+                empty state stays spelled out — there it is the only thing on
+                screen and has to say what it does. */}
+            <Icon name="plus" size={12} />
+            {t("presentation.pdf")}
           </button>
           <button className="btn btn--sm" onClick={() => void create()} disabled={!!busy}>
             <Icon name="plus" size={12} />
@@ -401,6 +415,17 @@ export function PresentationsTab() {
                   onContextMenu={(event) => {
                     setActiveId(item.id);
                     openMenu(event, [
+                      {
+                        label: t("plan.add"),
+                        icon: "plus",
+                        onSelect: () =>
+                          addToPlan({
+                            kind: "presentation",
+                            label: item.name,
+                            note: "",
+                            ref: { presentationId: item.id },
+                          }),
+                      },
                       {
                         label: t("songbook.rename"),
                         icon: "pencil",

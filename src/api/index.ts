@@ -21,6 +21,9 @@ import type {
   VerseRow,
   Playback,
   WebScreenStatus,
+  ImportReport,
+  Plan,
+  SongFormat,
   Track,
 } from "./types";
 
@@ -32,6 +35,7 @@ export const EVENT = {
   identify: "lyricverse://identify",
   timer: "lyricverse://timer",
   playback: "lyricverse://playback",
+  menu: "lyricverse://menu",
   webScreens: "lyricverse://webscreens",
 } as const;
 
@@ -133,6 +137,16 @@ export const api = {
   renameSongbook: (from: string, to: string) => invoke<void>("rename_songbook", { from, to }),
   deleteSongbook: (name: string, deleteFile: boolean) =>
     invoke<void>("delete_songbook", { name, deleteFile }),
+
+  /** JSON writes one file holding every song; txt writes one file per song. */
+  exportSongs: (songbook: string, ids: number[], format: SongFormat, destination: string) =>
+    invoke<string[]>("export_songs", { songbook, ids, format, destination }),
+  importSongs: (songbook: string, paths: string[]) =>
+    invoke<ImportReport>("import_songs", { songbook, paths }),
+
+  listPlans: () => invoke<Plan[]>("list_plans"),
+  savePlan: (plan: Plan) => invoke<Plan>("save_plan", { plan }),
+  deletePlan: (id: string) => invoke<void>("delete_plan", { id }),
 
   listTranslations: () => invoke<TranslationMeta[]>("list_translations"),
   getBooks: (translationName: string) => invoke<BookInfo[]>("get_books", { translationName }),

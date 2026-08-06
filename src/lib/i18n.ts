@@ -1,5 +1,7 @@
-/** Small hand-rolled i18n. Ukrainian is the primary language; English is the
- *  fallback and the key set. */
+/** Small hand-rolled i18n. English is the default, the fallback, and the key
+ *  set — a missing Ukrainian key falls through to it rather than showing the
+ *  key itself. Ukrainian is a complete translation and one click away in
+ *  Settings. */
 
 const uk: Record<string, string> = {
   "tab.songs": "Пісні",
@@ -59,6 +61,7 @@ const uk: Record<string, string> = {
   "presentation.slidesDeleteConfirm": "Видалити {n} слайдів?",
   "presentation.deleteSelected": "Видалити вибрані ({n})",
   "presentation.importPdf": "Імпортувати PDF…",
+  "presentation.pdf": "PDF",
   "presentation.importPdfHint": "Створює презентацію з готового PDF-файлу.",
   "presentation.untitled": "Нова презентація",
   "presentation.add": "Додати PDF або фото…",
@@ -148,6 +151,18 @@ const uk: Record<string, string> = {
   "songs.pick": "Виберіть пісню",
   "songs.pickHint": "Її слайди з’являться тут.",
   "songs.count": "{n} пісень",
+  "songs.transfer": "Імпорт та експорт",
+  "songs.import": "Імпортувати пісні з файлів…",
+  "songs.imported": "Імпортовано пісень: {n}",
+  "songs.exportBookJson": "Експортувати пісенник у JSON…",
+  "songs.exportBookTxt": "Експортувати пісенник у TXT…",
+  "songs.exportOne": "Експортувати пісню…",
+  "songs.exportSelected": "Експортувати вибрані ({n}) у TXT…",
+  "songs.exportSelectedJson": "Експортувати вибрані ({n}) у JSON…",
+  "songs.deleteSelected": "Видалити вибрані ({n})",
+  "songs.deleteManyConfirm": "Видалити {n} пісень назавжди?",
+  "songs.exported": "Записано файлів: {n}",
+  "songs.fileFilter": "Пісні (JSON, TXT)",
   "songs.favourite": "Улюблена",
   "songs.favouritesFirst": "Спочатку улюблені",
   "songs.favouritesFirstOn": "Улюблені вгорі",
@@ -224,7 +239,12 @@ const uk: Record<string, string> = {
   "preset.constantBackground": "Не змінювати фон",
   "preset.constantBackgroundHint":
     "Фон лишається той самий, навіть коли екран погашено. Потрібно для хромакею.",
+  "preset.nextPreview": "Показ наступного слайда",
+  "preset.nextPreviewHint":
+    "Елемент «Далі» показує сам слайд у зменшеному вигляді, а не рядок тексту. Для екрана, зверненого до музикантів.",
   "transport.noDeck": "Нічого не відкрито",
+
+  "update.ready": "Версію {version} завантажено — оновиться після виходу",
 
   "view.title": "Вигляд",
   "view.hint": "Що показувати у вікні",
@@ -234,6 +254,27 @@ const uk: Record<string, string> = {
   "view.sidePanel": "Бічна панель",
   "view.sidePanelRight": "Панель праворуч",
   "view.sidePanelBottom": "Панель знизу",
+
+  "plan.title": "План",
+  "plan.add": "Додати до плану",
+  "plan.added": "«{name}» додано до плану",
+  "plan.empty": "План порожній. Додайте пісні, уривки чи відео правою кнопкою.",
+  "plan.untitled": "Без назви",
+  "plan.namePlaceholder": "Ранкове зібрання",
+  "plan.defaultName": "План від {date}",
+  "plan.open": "Відкрити план",
+  "plan.new": "Новий план",
+  "plan.rename": "Назва плану",
+  "plan.delete": "Видалити план",
+  "plan.deleteConfirm": "Видалити план «{name}»?",
+  "plan.noneSaved": "Збережених планів немає",
+  "plan.remove": "Прибрати з плану",
+  "plan.moveUp": "Вище",
+  "plan.moveDown": "Нижче",
+  "plan.note": "Примітка",
+  "plan.notePlaceholder": "після оголошень",
+  "plan.showHint": "Натисніть, щоб відкрити · перетягніть, щоб змінити порядок",
+  "plan.missing": "«{name}» більше немає в бібліотеці",
 
   "history.title": "Історія",
   "history.empty": "Ще нічого не показували",
@@ -502,6 +543,7 @@ const en: Record<string, string> = {
   "presentation.slidesDeleteConfirm": "Delete {n} slides?",
   "presentation.deleteSelected": "Delete selected ({n})",
   "presentation.importPdf": "Import a PDF…",
+  "presentation.pdf": "PDF",
   "presentation.importPdfHint": "Creates a presentation from an existing PDF.",
   "presentation.untitled": "New presentation",
   "presentation.add": "Add PDF or images…",
@@ -591,6 +633,18 @@ const en: Record<string, string> = {
   "songs.pick": "Pick a song",
   "songs.pickHint": "Its slides appear here.",
   "songs.count": "{n} songs",
+  "songs.transfer": "Import and export",
+  "songs.import": "Import songs from files…",
+  "songs.imported": "{n} song(s) imported",
+  "songs.exportBookJson": "Export songbook as JSON…",
+  "songs.exportBookTxt": "Export songbook as TXT…",
+  "songs.exportOne": "Export song…",
+  "songs.exportSelected": "Export selected ({n}) as TXT…",
+  "songs.exportSelectedJson": "Export selected ({n}) as JSON…",
+  "songs.deleteSelected": "Delete selected ({n})",
+  "songs.deleteManyConfirm": "Delete {n} songs permanently?",
+  "songs.exported": "{n} file(s) written",
+  "songs.fileFilter": "Songs (JSON, TXT)",
   "songs.favourite": "Favourite",
   "songs.favouritesFirst": "Favourites first",
   "songs.favouritesFirstOn": "Favourites on top",
@@ -667,7 +721,12 @@ const en: Record<string, string> = {
   "preset.constantBackground": "Keep the background fixed",
   "preset.constantBackgroundHint":
     "The background stays identical even when blanked. Required for a chroma key.",
+  "preset.nextPreview": "Preview the next slide",
+  "preset.nextPreviewHint":
+    "The “next up” element shows a small picture of the coming slide instead of a line of its text. For a screen facing the musicians.",
   "transport.noDeck": "Nothing open",
+
+  "update.ready": "Version {version} downloaded — it will install when you quit",
 
   "view.title": "View",
   "view.hint": "What to show in the window",
@@ -677,6 +736,27 @@ const en: Record<string, string> = {
   "view.sidePanel": "Side panel",
   "view.sidePanelRight": "Panel on the right",
   "view.sidePanelBottom": "Panel at the bottom",
+
+  "plan.title": "Plan",
+  "plan.add": "Add to plan",
+  "plan.added": "“{name}” added to the plan",
+  "plan.empty": "The plan is empty. Right-click songs, passages or clips to add them.",
+  "plan.untitled": "Untitled plan",
+  "plan.namePlaceholder": "Sunday morning",
+  "plan.defaultName": "Plan of {date}",
+  "plan.open": "Open plan",
+  "plan.new": "New plan",
+  "plan.rename": "Plan name",
+  "plan.delete": "Delete plan",
+  "plan.deleteConfirm": "Delete the plan “{name}”?",
+  "plan.noneSaved": "No saved plans",
+  "plan.remove": "Remove from plan",
+  "plan.moveUp": "Move up",
+  "plan.moveDown": "Move down",
+  "plan.note": "Note",
+  "plan.notePlaceholder": "after the notices",
+  "plan.showHint": "Click to open · drag to reorder",
+  "plan.missing": "“{name}” is no longer in the library",
 
   "history.title": "History",
   "history.empty": "Nothing shown yet",
@@ -890,7 +970,7 @@ const en: Record<string, string> = {
 const DICTIONARIES: Record<string, Record<string, string>> = { uk, en };
 
 export type Language = "uk" | "en";
-export const LANGUAGES: Language[] = ["uk", "en"];
+export const LANGUAGES: Language[] = ["en", "uk"];
 export const LANGUAGE_NAMES: Record<Language, string> = { uk: "Українська", en: "English" };
 
 export function translate(

@@ -8,9 +8,7 @@
     "prepare-resources": "node scripts/prepare-resources.mjs",
     "dev:vite": "vite",
     "build:vite": "tsc --noEmit && vite build",
-    "predev": "npm run prepare-resources",
     "dev": "tauri dev",
-    "prebuild": "npm run prepare-resources",
     "build": "tauri build",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
@@ -20,6 +18,8 @@
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "pdfjs-dist": "^4.10.38",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

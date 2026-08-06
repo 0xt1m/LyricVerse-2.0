@@ -12,9 +12,11 @@ mod fonts;
 mod images;
 mod live;
 mod paths;
+mod plans;
 mod presentations;
 mod seed;
 mod settings;
+mod songio;
 mod text;
 mod videos;
 mod webscreen;
@@ -42,6 +44,9 @@ pub const EVENT_IDENTIFY: &str = "lyricverse://identify";
 pub const EVENT_TIMER: &str = "lyricverse://timer";
 pub const EVENT_WEB_SCREENS: &str = "lyricverse://webscreens";
 pub const EVENT_PLAYBACK: &str = "lyricverse://playback";
+/// A menu action the window has to carry out — one that needs a file picker or
+/// knowledge of what is open, neither of which the menu handler has.
+pub const EVENT_MENU: &str = "lyricverse://menu";
 
 #[derive(Default)]
 pub struct AppState {
@@ -799,6 +804,59 @@ fn set_track_looping(app: AppHandle, id: String, looping: bool) -> Result<()> {
     Ok(())
 }
 
+// --- Songs in and out -----------------------------------------------------
+
+#[tauri::command]
+fn export_songs(
+    app: AppHandle,
+    songbook: String,
+    ids: Vec<i64>,
+    format: String,
+    destination: String,
+) -> Result<Vec<String>> {
+    let written = songio::export(
+        &paths::songbooks_dir(&app)?,
+        &songbook,
+        &ids,
+        &format,
+        std::path::Path::new(&destination),
+    )?;
+    Ok(written.iter().map(|path| path.to_string_lossy().into_owned()).collect())
+}
+
+#[tauri::command]
+fn import_songs(
+    app: AppHandle,
+    songbook: String,
+    paths: Vec<String>,
+) -> Result<songio::ImportReport> {
+    let files: Vec<std::path::PathBuf> = paths.into_iter().map(std::path::PathBuf::from).collect();
+    let report = songio::import(&paths::songbooks_dir(&app)?, &songbook, &files)?;
+    let _ = app.emit(EVENT_LIBRARY, ());
+    Ok(report)
+}
+
+// --- Service plans --------------------------------------------------------
+
+#[tauri::command]
+fn list_plans(app: AppHandle) -> Result<Vec<plans::Plan>> {
+    plans::list(&paths::plans_dir(&app)?)
+}
+
+#[tauri::command]
+fn save_plan(app: AppHandle, plan: plans::Plan) -> Result<plans::Plan> {
+    let saved = plans::save(&paths::plans_dir(&app)?, plan)?;
+    let _ = app.emit(EVENT_LIBRARY, ());
+    Ok(saved)
+}
+
+#[tauri::command]
+fn delete_plan(app: AppHandle, id: String) -> Result<()> {
+    plans::remove(&paths::plans_dir(&app)?, &id)?;
+    let _ = app.emit(EVENT_LIBRARY, ());
+    Ok(())
+}
+
 #[tauri::command]
 fn set_track_volume(app: AppHandle, id: String, volume: f64) -> Result<()> {
     audio::set_volume(&paths::audio_dir(&app)?, &id, volume)?;
@@ -916,6 +974,10 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // The updater checks a signed manifest on GitHub; `process` is what
+        // lets the app restart itself once an update has been applied.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppState::default())
         .manage(webscreen::WebScreens::default())
         .manage(appmenu::MenuChecks::default())
@@ -924,6 +986,11 @@ pub fn run() {
             // does, and goes down the same save-and-broadcast path — so every
             // window and every screen hears about it either way.
             let id = event.id().as_ref().to_string();
+            // Actions go to the window rather than being carried out here.
+            if appmenu::is_song_action(&id) {
+                let _ = app.emit(EVENT_MENU, &id);
+                return;
+            }
             let state = app.state::<AppState>();
             let Ok(mut guard) = state.settings.lock() else { return };
             if !appmenu::toggle(&mut guard, &id) {
@@ -1035,6 +1102,11 @@ pub fn run() {
             set_track_looping,
             set_track_volume,
             delete_track,
+            export_songs,
+            import_songs,
+            list_plans,
+            save_plan,
+            delete_plan,
             supported_audio_extensions,
             list_videos,
             set_video_looping,

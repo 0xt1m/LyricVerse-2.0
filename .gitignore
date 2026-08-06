@@ -8,8 +8,14 @@ src-tauri/target/
 src-tauri/gen/
 
 # Staging copy, rebuilt from seed/ by scripts/prepare-resources.mjs.
-# The source of truth is seed/, which is tracked.
 src-tauri/resources/
+
+# Songbooks and Bible translations belong to the device, not the repository.
+# They are a congregation's own library — often licensed text that must not be
+# redistributed — and they are tens of megabytes of binary that would sit in
+# every clone for ever. A build with no seed simply starts empty, and the app
+# imports songbooks and translations from the Settings and Songs tabs.
+seed/
 
 # Cached download used by scripts/build-english-bible.mjs
 scripts/.cache-*.json
@@ -18,6 +24,11 @@ scripts/.cache-*.json
 app-icon.png
 
 # Secrets — nothing here today, keep it that way.
+# The updater's signing key. It lives in ~/.lyricverse and as a repo secret;
+# a copy landing in here would let anyone sign an update for this app.
+updater.key
+updater.key.pub
+*.key.pem
 .env
 .env.*
 !.env.example

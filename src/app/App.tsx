@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useStore, type Tab } from "./store";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useStore, flushSettings, type Tab } from "./store";
+import { fetchUpdate, installPendingUpdate, updateIsWaiting } from "../lib/updates";
 import { BibleTab } from "../components/BibleTab";
 import { DisplaysTab } from "../components/DisplaysTab";
 import { PresentationsTab } from "../components/PresentationsTab";
@@ -57,6 +59,8 @@ export function App() {
   useEffect(() => {
     void init();
   }, [init]);
+
+  useUpdates();
 
   useGlobalShortcuts();
 
@@ -857,4 +861,35 @@ function useGlobalShortcuts() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [step, toggleBlank, setTab, toggleAllMedia]);
+}
+
+/**
+ * Fetch a new version at startup, apply it when the operator quits.
+ *
+ * The toast is the only thing said about it, and only once it is downloaded
+ * and certain to apply — telling somebody an update *might* arrive is noise.
+ */
+function useUpdates() {
+  const t = useStore((s) => s.t);
+  const toast = useStore((s) => s.toast);
+
+  useEffect(() => {
+    void fetchUpdate().then((version) => {
+      if (version) toast(t("update.ready", { version }), "success");
+    });
+  }, [t, toast]);
+
+  useEffect(() => {
+    const window = getCurrentWindow();
+    const pending = window.onCloseRequested(async (event) => {
+      if (!updateIsWaiting()) return;
+      // Held open just long enough to swap the app over; `installPendingUpdate`
+      // quits for us, and returns false if it could not, in which case the
+      // close carries on as normal.
+      event.preventDefault();
+      flushSettings();
+      if (!(await installPendingUpdate())) void window.destroy();
+    });
+    return () => void pending.then((off) => off());
+  }, []);
 }

@@ -37,6 +37,7 @@ export function AudioTab() {
   const [busy, setBusy] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const openMenu = useContextMenu();
+  const addToPlan = useStore((s) => s.addToPlan);
   const dialogs = useDialogs();
 
   const reload = useCallback(() => {
@@ -146,6 +147,17 @@ export function AudioTab() {
                   label: t("audio.loop"),
                   checked: track.looping,
                   onSelect: () => setLooping(track, !track.looping),
+                },
+                {
+                  label: t("plan.add"),
+                  icon: "plus",
+                  onSelect: () =>
+                    addToPlan({
+                      kind: "audio",
+                      label: track.name,
+                      note: "",
+                      ref: { trackId: track.id },
+                    }),
                 },
                 { label: t("audio.rename"), icon: "pencil", onSelect: () => rename(track) },
                 "separator",

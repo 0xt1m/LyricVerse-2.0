@@ -1,4 +1,4 @@
-//! The View menu in the macOS menu bar.
+//! The app's own menus in the macOS menu bar.
 //!
 //! The same switches as the in-app View button, put where a Mac user
 //! looks for them. Both routes write the same settings, so a tick here and a
@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use tauri::menu::{CheckMenuItem, Menu, Submenu};
+use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::error::Result;
@@ -30,6 +30,23 @@ pub const ITEMS: [(&str, &str); 6] = [
     ("view.sidePanel.right", "Side panel on the right"),
     ("view.sidePanel.bottom", "Side panel at the bottom"),
 ];
+
+/// The Songs menu: actions rather than switches.
+///
+/// These cannot be carried out here — importing needs a file picker and
+/// exporting needs to know which songbook is open, both of which live in the
+/// window — so a click is forwarded to the frontend, which runs exactly the
+/// same code the in-app button does.
+pub const SONG_ITEMS: [(&str, &str); 3] = [
+    ("songs.import", "Import Songs…"),
+    ("songs.exportJson", "Export Songbook as JSON…"),
+    ("songs.exportTxt", "Export Songbook as Text…"),
+];
+
+/// True for an id belonging to the Songs menu.
+pub fn is_song_action(id: &str) -> bool {
+    SONG_ITEMS.iter().any(|(item, _)| *item == id)
+}
 
 /// The check items, kept so their ticks can be re-synced later.
 #[derive(Default)]
@@ -79,7 +96,13 @@ pub fn install(app: &AppHandle, settings: &Settings) -> Result<()> {
         checks.insert(id.to_string(), item);
     }
 
+    let songs = Submenu::with_id(app, "songs", "Song", true)?;
+    for (id, label) in SONG_ITEMS {
+        songs.append(&MenuItem::with_id(app, id, label, true, None::<&str>)?)?;
+    }
+
     menu.append(&view)?;
+    menu.append(&songs)?;
     app.set_menu(menu)?;
     *app.state::<MenuChecks>().0.lock().map_err(|_| {
         crate::error::AppError::msg("menu state poisoned")

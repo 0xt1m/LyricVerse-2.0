@@ -1,12 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "LyricVerse",
-  "version": "2.0.0",
   "identifier": "app.lyricverse.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev:vite",
+    "beforeDevCommand": "npm run prepare-resources && npm run dev:vite",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build:vite",
+    "beforeBuildCommand": "npm run prepare-resources && npm run build:vite",
     "frontendDist": "../dist"
   },
   "app": {
@@ -51,6 +50,18 @@
     ],
     "resources": [
       "resources/seed/**/*"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdGNEQwNTY3OTRDODlFODAKUldTQW5zaVVad1ZOZnkwaVk3Mzl3UkRrZEpDdjhjK21HcWREZVJhd2pNd1J5Tmx4ZlBGTHZZSVAK",
+      "endpoints": [
+        "https://github.com/0xt1m/LyricVerse-2.0/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

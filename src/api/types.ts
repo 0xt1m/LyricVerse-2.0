@@ -275,6 +275,9 @@ export interface Preset {
   constantBackground: boolean;
   /** Ignore the source's line breaks and let the words wrap to the box. */
   collapseLineBreaks: boolean;
+  /** Draw "next up" as a little picture of the coming slide, not a line of
+   *  text. For a confidence screen facing the platform. */
+  nextPreview: boolean;
 
   background: string;
   /** File name inside the Backgrounds folder — an image or a video. */
@@ -468,3 +471,51 @@ export interface Deck {
   title: string;
   slides: DeckSlide[];
 }
+
+// --- Service plans ---------------------------------------------------------
+
+export type PlanKind = "song" | "bible" | "presentation" | "video" | "audio";
+
+/**
+ * One item in a running order.
+ *
+ * A reference, not a copy: a song corrected on Saturday night is corrected in
+ * Sunday's plan too. `label` is what it was called when it was added, kept so
+ * the plan still reads sensibly if the thing it points at has been deleted
+ * from under it.
+ */
+export type PlanEntry =
+  | PlanEntryBase<"song", { songbook: string; songId: number }>
+  | PlanEntryBase<
+      "bible",
+      { translation: string; book: number; chapter: number; start: number; end: number }
+    >
+  | PlanEntryBase<"presentation", { presentationId: string }>
+  | PlanEntryBase<"video", { videoId: string }>
+  | PlanEntryBase<"audio", { trackId: string }>;
+
+interface PlanEntryBase<K extends PlanKind, R> {
+  id: string;
+  kind: K;
+  label: string;
+  /** The operator's own note — "after the notices", "2 verses only". */
+  note: string;
+  ref: R;
+}
+
+export interface Plan {
+  id: string;
+  name: string;
+  entries: PlanEntry[];
+  /** Epoch milliseconds of the last save, newest first in the list. */
+  updatedMs: number;
+}
+
+/** What a bulk song import managed, and what it could not read. */
+export interface ImportReport {
+  imported: number;
+  /** One entry per file that failed, as "name: why". */
+  failed: string[];
+}
+
+export type SongFormat = "json" | "txt";

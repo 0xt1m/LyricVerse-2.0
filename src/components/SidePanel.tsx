@@ -1,8 +1,12 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useStore } from "../app/store";
 import { mediaSrc } from "../api/net";
+import type { PlanEntry } from "../api/types";
 import { ScreenPreview } from "./Preview";
-import { Icon } from "./ui/Icon";
+import { Icon, type IconName } from "./ui/Icon";
+import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
+import { useDialogs } from "./ui/Dialogs";
+import { useGridReorder } from "../lib/dragReorder";
 
 /** Small enough to be worth having, large enough to still be readable. */
 const MIN_WIDTH = 210;
@@ -11,12 +15,12 @@ const MIN_HEIGHT = 130;
 const MAX_FRACTION = 0.6;
 
 /**
- * The preview-and-history panel on the content tabs.
+ * The panel down the side of the content tabs.
  *
- * Two things the operator wants without leaving whatever tab they are on: what
- * a screen is showing this second, and what it has shown already. The setup
- * tabs do not get it — nobody is driving a service while wiring up a projector,
- * and those tabs want the room.
+ * What the operator wants without leaving whatever tab they are on: what a
+ * screen is showing this second, what it has shown already, and what is coming.
+ * The setup tabs do not get it — nobody is driving a service while wiring up a
+ * projector, and those tabs want the room.
  *
  * It docks right or bottom because neither suits every desk: a tall portrait
  * monitor has width to spare, a laptop has none and would rather give up
@@ -26,6 +30,11 @@ export function SidePanel() {
   const chosen = useStore((s) => s.sidePreviewDisplayId);
   const setSidePreviewDisplay = useStore((s) => s.setSidePreviewDisplay);
   const placement = useStore((s) => s.settings.sidePanelPlacement);
+  const t = useStore((s) => s.t);
+  const planCount = useStore((s) => s.plan.entries.length);
+  // Plan first: on the way into a service it is the thing being built, and
+  // history has nothing in it yet.
+  const [view, setView] = useState<"plan" | "history">("plan");
 
   return (
     <aside className="sidepanel" data-placement={placement}>
@@ -37,7 +46,27 @@ export function SidePanel() {
           className="sidepanel__preview"
         />
       </div>
-      <History />
+
+      <div className="sidepanel__section sidepanel__section--grow">
+        <div className="sidepanel__tabs">
+          <button
+            className="sidepanel__tab"
+            aria-selected={view === "plan"}
+            onClick={() => setView("plan")}
+          >
+            {t("plan.title")}
+            {planCount > 0 && <span className="sidepanel__count">{planCount}</span>}
+          </button>
+          <button
+            className="sidepanel__tab"
+            aria-selected={view === "history"}
+            onClick={() => setView("history")}
+          >
+            {t("history.title")}
+          </button>
+        </div>
+        {view === "plan" ? <PlanList /> : <History />}
+      </div>
     </aside>
   );
 }
@@ -124,9 +153,9 @@ function History() {
         null);
 
   return (
-    <div className="sidepanel__section sidepanel__section--grow">
-      <div className="sidepanel__head">
-        <span className="panel__title">{t("history.title")}</span>
+    <>
+      <div className="sidepanel__bar">
+        <span className="field__hint">{t("history.hint")}</span>
         <div className="topbar__spacer" />
         {history.length > 0 && (
           <button
@@ -179,6 +208,201 @@ function History() {
           })}
         </div>
       )}
-    </div>
+    </>
+  );
+}
+
+/** What each kind of entry looks like at a glance. */
+const PLAN_ICONS: Record<PlanEntry["kind"], IconName> = {
+  song: "music",
+  bible: "book",
+  presentation: "image",
+  video: "play",
+  audio: "music",
+};
+
+/**
+ * The running order, and the controls for the plan holding it.
+ *
+ * Built before a service and worked down during one: a press puts an item on
+ * screen, so the operator drives the service from here rather than hunting
+ * through five tabs for the next thing. Items are references, so the song that
+ * goes up is the song as it stands now — see `resolvePlanEntry`.
+ */
+function PlanList() {
+  const t = useStore((s) => s.t);
+  const plan = useStore((s) => s.plan);
+  const plans = useStore((s) => s.plans);
+  const openPlanEntry = useStore((s) => s.openPlanEntry);
+  const removeFromPlan = useStore((s) => s.removeFromPlan);
+  const movePlanEntry = useStore((s) => s.movePlanEntry);
+  const setPlanNote = useStore((s) => s.setPlanNote);
+  const startNewPlan = useStore((s) => s.startNewPlan);
+  const renamePlan = useStore((s) => s.renamePlan);
+  const openPlan = useStore((s) => s.openPlan);
+  const deletePlan = useStore((s) => s.deletePlan);
+  const openMenu = useContextMenu();
+  const dialogs = useDialogs();
+
+  // Pointer-driven, like every other reorder in the app: WebKit will not start
+  // an HTML5 drag without `setData`, and Tauri's file-drop sits in front of
+  // those events anyway. A press has to travel a few pixels to count as a drag,
+  // so a plain click still opens the entry.
+  const listRef = useRef<HTMLDivElement>(null);
+  const { dragging, beginPress } = useGridReorder({
+    containerRef: listRef,
+    onMove: movePlanEntry,
+    onClick: (index) => {
+      const entry = plan.entries[index];
+      if (entry) void openPlanEntry(entry.id);
+    },
+  });
+
+  const openMenuEntries = (): MenuEntry[] => {
+    if (plans.length === 0) {
+      return [{ label: t("plan.noneSaved"), disabled: true, onSelect: () => {} }];
+    }
+    return plans.map((saved) => ({
+      label: saved.name,
+      checked: saved.id === plan.id,
+      onSelect: () => openPlan(saved.id),
+    }));
+  };
+
+  return (
+    <>
+      <div className="sidepanel__bar">
+        <button
+          className="plan__name"
+          title={t("plan.rename")}
+          onClick={() =>
+            void dialogs
+              .prompt({
+                title: t("plan.rename"),
+                label: t("common.name"),
+                value: plan.name,
+                placeholder: t("plan.namePlaceholder"),
+              })
+              .then((name) => name && renamePlan(name))
+          }
+        >
+          {plan.name.trim() || t("plan.untitled")}
+        </button>
+
+        <div className="topbar__spacer" />
+
+        <button
+          className="btn btn--icon btn--sm"
+          title={t("plan.open")}
+          onClick={(event) => openMenu(event, openMenuEntries())}
+        >
+          <Icon name="folder" size={12} />
+        </button>
+        <button
+          className="btn btn--icon btn--sm"
+          title={t("plan.new")}
+          onClick={(event) =>
+            openMenu(event, [
+              { label: t("plan.new"), icon: "plus", onSelect: () => startNewPlan("") },
+              ...(plan.id && plans.some((saved) => saved.id === plan.id)
+                ? ([
+                    "separator",
+                    {
+                      label: t("plan.delete"),
+                      icon: "trash",
+                      danger: true,
+                      onSelect: () =>
+                        void dialogs
+                          .confirm({
+                            title: t("plan.delete"),
+                            message: t("plan.deleteConfirm", { name: plan.name }),
+                            confirmLabel: t("common.delete"),
+                            danger: true,
+                          })
+                          .then((ok) => ok && void deletePlan(plan.id)),
+                    },
+                  ] as const)
+                : []),
+            ])
+          }
+        >
+          <Icon name="grip" size={12} />
+        </button>
+      </div>
+
+      {plan.entries.length === 0 ? (
+        <div className="sidepanel__empty">
+          <span className="field__hint">{t("plan.empty")}</span>
+        </div>
+      ) : (
+        <div className="sidepanel__history" ref={listRef}>
+          {plan.entries.map((entry, index) => (
+            <div
+              key={entry.id}
+              className="plan__row"
+              data-dragging={dragging === index || undefined}
+              title={`${entry.label} — ${t("plan.showHint")}`}
+              onPointerDown={(event) => beginPress(event, index)}
+              onContextMenu={(event) =>
+                openMenu(event, [
+                  {
+                    label: t("menu.show"),
+                    icon: "eye",
+                    onSelect: () => void openPlanEntry(entry.id, true),
+                  },
+                  {
+                    label: t("plan.open"),
+                    icon: "folder",
+                    onSelect: () => void openPlanEntry(entry.id),
+                  },
+                  {
+                    label: t("plan.note"),
+                    icon: "pencil",
+                    onSelect: () =>
+                      void dialogs
+                        .prompt({
+                          title: t("plan.note"),
+                          label: t("plan.note"),
+                          value: entry.note,
+                          placeholder: t("plan.notePlaceholder"),
+                        })
+                        .then((note) => note !== null && setPlanNote(entry.id, note)),
+                  },
+                  "separator",
+                  {
+                    label: t("plan.moveUp"),
+                    icon: "arrowUp",
+                    disabled: index === 0,
+                    onSelect: () => movePlanEntry(index, index - 1),
+                  },
+                  {
+                    label: t("plan.moveDown"),
+                    icon: "arrowDown",
+                    disabled: index === plan.entries.length - 1,
+                    onSelect: () => movePlanEntry(index, index + 1),
+                  },
+                  "separator",
+                  {
+                    label: t("plan.remove"),
+                    icon: "trash",
+                    danger: true,
+                    onSelect: () => removeFromPlan(entry.id),
+                  },
+                ])
+              }
+            >
+              <span className="plan__index">{index + 1}</span>
+              <span className="plan__glyph">
+                <Icon name={PLAN_ICONS[entry.kind]} size={13} />
+              </span>
+              <span className="history__text">
+                <span className="history__title">{entry.label}</span>
+                {entry.note && <span className="history__part">{entry.note}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

@@ -79,7 +79,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             version: SETTINGS_VERSION,
-            language: "uk".into(),
+            language: "en".into(),
             active_songbook: None,
             active_translation: None,
             secondary_translations: Vec::new(),
@@ -170,6 +170,15 @@ pub struct Preset {
     /// the box instead. Songbooks and Bible modules break lines to suit the
     /// page they were typeset for, which rarely suits a projector.
     pub collapse_line_breaks: bool,
+    /// Draw the "next up" element as a little picture of the coming slide
+    /// rather than as a line of text.
+    ///
+    /// For the platform, not the room: a musician glancing across wants to
+    /// recognise the shape of the next verse, which a plain run of words in a
+    /// corner does not give them. Off by default, since a screen the
+    /// congregation can see should not be showing them what has not happened
+    /// yet.
+    pub next_preview: bool,
 
     pub background: String,
     /// File name inside the Backgrounds folder — an image or a video.
@@ -203,6 +212,7 @@ impl Default for Preset {
             builtin: false,
             constant_background: false,
             collapse_line_breaks: true,
+            next_preview: false,
             background: "#000000".into(),
             background_media: None,
             background_fit: "cover".into(),
@@ -249,6 +259,7 @@ pub fn builtin_presets() -> Vec<Preset> {
             passive_background: "#08090b".into(),
             song: Layout::song_confidence(),
             bible: Layout::bible_confidence(),
+            next_preview: true,
             ..Preset::default()
         },
     ]
