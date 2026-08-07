@@ -183,6 +183,11 @@ function WebDisplay() {
       identify={null}
       timer={timer}
       playback={playback}
+      // A browser will not autoplay unmuted media without somebody clicking
+      // the page first, so an unmuted clip on a web screen never starts at
+      // all. The room's sound comes from the console, not from a tablet at
+      // the back, so this costs nothing and is the only way it plays.
+      silent
     />
   );
 }

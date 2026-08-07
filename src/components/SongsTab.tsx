@@ -250,7 +250,15 @@ export function SongsTab() {
    * or the search changes, since either makes the old indices point at
    * different songs.
    */
-  const picked = useTileSelection(ordered.length, `${songbook}:${query}`);
+  const picked = useTileSelection(
+    ordered.length,
+    // Every input to `ordered`, not just the obvious two. Starring a song or
+    // turning on favourites-first reorders the list without changing its
+    // length, and the selection is held as indices — so leaving those out
+    // meant the rows moved while the selection stayed, and a delete would
+    // take songs other than the ones highlighted.
+    `${songbook}:${query}:${settings.favouritesFirst}:${favourites.size}`,
+  );
 
   // --- Section editing ---------------------------------------------------
 

@@ -71,7 +71,7 @@ export function PreviewCard({
               height={display.height}
               timer={timer}
               playback={playback}
-              preview
+              silent
             />
           </div>
         )}

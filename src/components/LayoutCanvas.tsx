@@ -136,7 +136,7 @@ export function LayoutCanvas({
               height={aspect.height}
               alwaysRender
               timer={SAMPLE_TIMER}
-              preview
+              silent
             />
           </div>
         )}

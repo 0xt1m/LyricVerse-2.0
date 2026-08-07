@@ -362,6 +362,12 @@ const uk: Record<string, string> = {
   "style.maxSizeOn": "Текст не буде більшим за цей розмір, навіть якщо в рамці є місце.",
   "style.autoSize":
     "Розмір підбирається автоматично — текст завжди максимально великий у своїй рамці. Щоб зробити його більшим чи меншим, змініть розмір рамки на екрані-зразку.",
+  "style.fontEverywhere": "Застосувати всюди",
+  "style.fontEverywhereHint":
+    "Поставити цей шрифт на всі елементи всіх макетів кожного пресета. Розмір і розташування не змінюються.",
+  "style.fontEverywhereConfirm":
+    "Поставити «{font}» на всі елементи всіх макетів у {n} пресетах? Розмір і розташування лишаться як є.",
+  "style.fontEverywhereDone": "Шрифт застосовано до {n} пресетів",
   "style.fontDefault": "Стандартний",
   "style.text": "Текст",
   "style.font": "Шрифт",
@@ -844,6 +850,12 @@ const en: Record<string, string> = {
   "style.maxSizeOn": "Text never exceeds this, even when the box has room to spare.",
   "style.autoSize":
     "Size is automatic — text is always as large as its box allows. To make it bigger or smaller, resize the box on the example screen.",
+  "style.fontEverywhere": "Apply everywhere",
+  "style.fontEverywhereHint":
+    "Use this typeface on every element of every layout in every preset. Sizes and positions are left alone.",
+  "style.fontEverywhereConfirm":
+    "Use “{font}” on every element of every layout across {n} preset(s)? Sizes and positions stay as they are.",
+  "style.fontEverywhereDone": "Font applied across {n} preset(s)",
   "style.fontDefault": "Default",
   "style.text": "Text",
   "style.font": "Font",

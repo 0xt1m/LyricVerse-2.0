@@ -59,12 +59,16 @@ export async function installPendingUpdate(): Promise<boolean> {
   if (!pending) return false;
   try {
     await pending.install();
+    // Quitting is part of installing, not a courtesy afterwards: on Windows
+    // the installer needs the app gone, and on macOS the bundle has just been
+    // replaced underneath a running process.
+    await exit(0);
+    return true;
   } catch {
-    // A failed install must not trap the operator in a window that will not
-    // close; the old version simply runs again next time.
+    // Anything at all going wrong here — a failed install, a denied `exit` —
+    // must leave the operator with a window that still closes. The old
+    // version simply runs again next time.
     pending = null;
     return false;
   }
-  await exit(0);
-  return true;
 }

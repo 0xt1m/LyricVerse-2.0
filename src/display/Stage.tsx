@@ -35,14 +35,16 @@ interface Props {
   /** How the clip on screen should be playing. */
   playback?: Playback | null;
   /**
-   * This is one of the console's previews rather than a real screen.
+   * This surface must never make a sound, whatever the transport says.
    *
-   * It still follows the transport — a preview that ignored pause would be
-   * showing the operator something the room is not — but it never makes a
-   * sound, because it shares a machine with the projection window already
-   * playing the same clip.
+   * Two quite different reasons, one flag. A console preview shares a machine
+   * with the projection window already playing the clip, so sound here would
+   * be an echo. A browser screen is subject to the autoplay policy: no browser
+   * will start unmuted media without a user gesture, so an unmuted clip simply
+   * never plays at all. Both still follow the transport — a surface that
+   * ignored pause would be showing something the room is not.
    */
-  preview?: boolean;
+  silent?: boolean;
 }
 
 /**
@@ -58,7 +60,7 @@ export function Stage({
   alwaysRender,
   timer,
   playback,
-  preview,
+  silent,
 }: Props) {
   const isMedia = live.kind === "image" || live.kind === "video";
   const isTimer = live.kind === "timer";
@@ -118,7 +120,7 @@ export function Stage({
 
       {/* A presentation slide or a clip fills the screen; the layout's text
           elements belong to songs and scripture, so only the timer overlays. */}
-      {isMedia && <LiveMedia live={live} playback={playback ?? null} preview={!!preview} />}
+      {isMedia && <LiveMedia live={live} playback={playback ?? null} silent={!!silent} />}
 
       {!blank &&
         visibleElements(layout).map((element) => {
@@ -362,12 +364,12 @@ function VideoClip({
   url,
   playback,
   style,
-  preview,
+  silent,
 }: {
   url: string;
   playback: Playback | null;
   style: React.CSSProperties;
-  preview?: boolean;
+  silent?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
   const deviceId = useAudioDevice();
@@ -405,11 +407,10 @@ function VideoClip({
       autoPlay
       playsInline
       controls={false}
-      // The only place muting is decided. A preview shares a machine with the
-      // projection window already playing this clip, so sound here would be an
-      // echo of the room's; so would a clip with no transport at all. Anything
-      // else follows the room's own setting.
-      muted={preview || !playback || playback.muted}
+      // The only place muting is decided: a surface marked silent, or one with
+      // no transport to follow at all, never sounds. Everything else takes the
+      // room's own setting.
+      muted={silent || !playback || playback.muted}
     />
   );
 }
@@ -538,11 +539,11 @@ function BackgroundMedia({
 function LiveMedia({
   live,
   playback,
-  preview,
+  silent,
 }: {
   live: LiveState;
   playback: Playback | null;
-  preview: boolean;
+  silent: boolean;
 }) {
   const fill: React.CSSProperties = {
     position: "absolute",
@@ -560,7 +561,7 @@ function LiveMedia({
   const url = mediaSrc(live.mediaPath);
 
   if (live.kind === "video") {
-    return <VideoClip url={url} playback={playback} style={fill} preview={preview} />;
+    return <VideoClip url={url} playback={playback} style={fill} silent={silent} />;
   }
   return (
     <img

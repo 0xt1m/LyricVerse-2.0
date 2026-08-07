@@ -157,7 +157,26 @@ export function DisplaysTab() {
               return (
                 <button
                   key={item.id}
+                  data-screen-tile
                   onClick={() => setSelectedDisplay(item.id)}
+                  // Delete removes the screen under the cursor, but only a web
+                  // screen: a monitor is a piece of hardware on a desk, and
+                  // there is nothing to delete about it.
+                  onKeyDown={(event) => {
+                    if (event.key !== "Delete" && event.key !== "Backspace") return;
+                    if (!item.web) return;
+                    event.preventDefault();
+                    void dialogs
+                      .confirm({
+                        title: t("web.remove"),
+                        message: t("web.removeConfirm", { name: item.name }),
+                        confirmLabel: t("common.delete"),
+                        danger: true,
+                      })
+                      .then((ok) => {
+                        if (ok) void removeWebScreen(item.id);
+                      });
+                  }}
                   onContextMenu={(event) => {
                     setSelectedDisplay(item.id);
                     openMenu(event, [
@@ -515,6 +534,10 @@ function useHideOnDelete(
       const target = event.target as HTMLElement | null;
       // Never steal the key from a field the operator is typing in.
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      // Nor from a screen tile: there Delete means "remove this web screen",
+      // and the tile handles it. Without this both would fire on one press —
+      // the screen would go and a layout element would be hidden with it.
+      if (target?.closest("[data-screen-tile]")) return;
       if (!selected || !layout) return;
 
       event.preventDefault();
@@ -783,6 +806,53 @@ function ElementInspector({
   onChange: (patch: Partial<LayoutElement>) => void;
 }) {
   const t = useStore((s) => s.t);
+  const presets = useStore((s) => s.settings.presets);
+  const setPresets = useStore((s) => s.setPresets);
+  const toast = useStore((s) => s.toast);
+  const dialogs = useDialogs();
+
+  /**
+   * Puts this element's typeface on everything, everywhere.
+   *
+   * A congregation picks one typeface and wants it used, but a font lives on
+   * each element of each layout of each preset — song, scripture, media and
+   * timer, times however many looks are set up. Setting it by hand is dozens
+   * of identical clicks, and missing one shows up mid-service as a slide in
+   * the wrong face.
+   *
+   * Only the family is copied. Size, weight and placement stay as they are:
+   * those differ between a lower third and a projector on purpose.
+   */
+  const applyFontEverywhere = () => {
+    const family = element.fontFamily;
+    void dialogs
+      .confirm({
+        title: t("style.fontEverywhere"),
+        message: t("style.fontEverywhereConfirm", {
+          font: family || t("style.fontDefault"),
+          n: presets.length,
+        }),
+        confirmLabel: t("style.fontEverywhere"),
+      })
+      .then((ok) => {
+        if (!ok) return;
+        const restyle = (layout: Layout): Layout => ({
+          ...layout,
+          elements: layout.elements.map((item) => ({ ...item, fontFamily: family })),
+        });
+        void setPresets(
+          presets.map((preset) => ({
+            ...preset,
+            song: restyle(preset.song),
+            bible: restyle(preset.bible),
+            media: restyle(preset.media),
+            timer: restyle(preset.timer),
+          })),
+        );
+        toast(t("style.fontEverywhereDone", { n: presets.length }), "success");
+      });
+  };
+
   // Each group resets only the keys it owns, so resetting the font does not
   // move a box the operator has already placed.
   const reset = (...keys: (keyof LayoutElement)[]) =>
@@ -808,6 +878,15 @@ function ElementInspector({
           value={element.fontFamily}
           onChange={(fontFamily) => onChange({ fontFamily })}
         />
+        <button
+          className="btn btn--sm"
+          style={{ width: "100%", justifyContent: "center" }}
+          title={t("style.fontEverywhereHint")}
+          onClick={applyFontEverywhere}
+        >
+          <Icon name="check" size={12} />
+          {t("style.fontEverywhere")}
+        </button>
         <div className="field__hint">{t("style.autoSize")}</div>
         <Slider
           label={t("style.maxSize")}
