@@ -13,6 +13,7 @@ import {
   type Timer,
 } from "../api/types";
 import { seedBackgrounds } from "../lib/backgrounds";
+import { translate } from "../lib/i18n";
 import { Stage } from "./Stage";
 import "../styles/global.css";
 
@@ -117,6 +118,7 @@ function WebDisplay() {
 
     void (async () => {
       let since = 0;
+      let failures = 0;
       while (!stopped) {
         try {
           const next = await pollFrame(since, controller.signal);
@@ -129,12 +131,18 @@ function WebDisplay() {
             if (next.state.now) setSkew(Date.now() - next.state.now);
             setFrame(next.state);
           }
+          failures = 0;
           setOffline(false);
         } catch {
           if (stopped) return;
           // The console has quit, gone to sleep, or moved network. Keep
           // trying rather than leaving a dead screen on the wall.
-          setOffline(true);
+          //
+          // Two failures before saying so, not one: a single dropped request
+          // is an ordinary hiccup, and blanking the room's screen mid-verse
+          // because of it would be far worse than a moment of stale text.
+          failures += 1;
+          if (failures >= 2) setOffline(true);
           await new Promise((resolve) => window.setTimeout(resolve, 1500));
         }
       }
@@ -152,10 +160,18 @@ function WebDisplay() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  if (!frame) {
+  // Nothing yet, or the console has gone. Either way the screen shows why
+  // rather than the last thing it happened to be holding: a stale verse left
+  // standing in a room is worse than an honest blank, and unmounting the stage
+  // is also what stops a clip that was playing.
+  if (!frame || offline) {
+    const language = frame?.settings.language ?? "en";
     return (
       <div style={WAITING}>
-        {offline ? "Reconnecting to LyricVerse…" : "Waiting for LyricVerse…"}
+        <div>{translate(language, frame ? "web.lost" : "web.waiting")}</div>
+        <div style={{ fontSize: "0.6em", opacity: 0.7, marginTop: "0.8em" }}>
+          {translate(language, "web.retrying")}
+        </div>
       </div>
     );
   }
@@ -197,6 +213,8 @@ const WAITING: React.CSSProperties = {
   inset: 0,
   display: "grid",
   placeContent: "center",
+  justifyItems: "center",
+  textAlign: "center",
   background: "#000",
   color: "#5c5f66",
   font: "500 clamp(14px, 2.2vw, 22px)/1.4 system-ui, sans-serif",

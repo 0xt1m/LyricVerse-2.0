@@ -203,6 +203,7 @@ export function sampleLive(
       sectionKind: "",
       mediaPath: null,
       youtubeId: null,
+      cameraDeviceId: null,
       revision: 0,
     };
   }
@@ -225,6 +226,7 @@ export function sampleLive(
       sectionKind: "",
       mediaPath: null,
       youtubeId: null,
+      cameraDeviceId: null,
       revision: 0,
     };
   }
@@ -253,6 +255,7 @@ export function sampleLive(
       sectionKind: "scripture",
       mediaPath: null,
       youtubeId: null,
+      cameraDeviceId: null,
       revision: 0,
     };
   }
@@ -271,6 +274,7 @@ export function sampleLive(
     sectionKind: "chorus",
     mediaPath: null,
     youtubeId: null,
+    cameraDeviceId: null,
     revision: 0,
   };
 }

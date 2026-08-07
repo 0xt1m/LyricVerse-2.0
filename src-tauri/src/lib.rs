@@ -397,6 +397,7 @@ fn set_live(app: AppHandle, state: State<'_, AppState>, input: LiveInput) -> Res
             section_kind: input.section_kind,
             media_path: input.media_path,
             youtube_id: input.youtube_id,
+            camera_device_id: input.camera_device_id,
             revision,
         };
         guard.clone()

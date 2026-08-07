@@ -125,6 +125,7 @@ export const api = {
     sectionKind: string;
     mediaPath?: string | null;
     youtubeId?: string | null;
+    cameraDeviceId?: string | null;
   }) => invoke<LiveState>("set_live", { input }),
   blank: () => invoke<LiveState>("blank"),
 

@@ -21,6 +21,12 @@ pub enum LiveKind {
     /// A slide of words typed in the app — an announcement, a notice. Drawn
     /// with the Slides layout, since that is where it lives.
     Message,
+    /// A live camera on this machine, filling the screen.
+    ///
+    /// Unlike everything else here, the picture never travels: each projection
+    /// window opens the camera itself. A browser screen on another device
+    /// cannot, and says so rather than sitting blank.
+    Camera,
 }
 
 /// One field per layout element. A display draws whichever of these its layout
@@ -51,6 +57,9 @@ pub struct LiveState {
     pub media_path: Option<String>,
     /// YouTube video id, when the live item is a link rather than a file.
     pub youtube_id: Option<String>,
+    /// Which camera to open, as the browser's device id. Empty means whichever
+    /// one the system offers first, which is right for a machine with one.
+    pub camera_device_id: Option<String>,
     /// Bumped on every change so displays can ignore stale events.
     pub revision: u64,
 }
@@ -69,6 +78,7 @@ impl Default for LiveState {
             section_kind: String::new(),
             media_path: None,
             youtube_id: None,
+            camera_device_id: None,
             revision: 0,
         }
     }
@@ -97,6 +107,8 @@ pub struct LiveInput {
     pub section_kind: String,
     #[serde(default)]
     pub media_path: Option<String>,
+    #[serde(default)]
+    pub camera_device_id: Option<String>,
     #[serde(default)]
     pub youtube_id: Option<String>,
 }

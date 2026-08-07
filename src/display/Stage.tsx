@@ -3,7 +3,7 @@ import { EVENT, api, on } from "../api";
 import { IS_TAURI } from "../api/net";
 import { applySink } from "../components/AudioEngine";
 import { playbackPosition, youtubeCommand } from "../lib/playback";
-import { useBackgroundMedia } from "../lib/backgrounds";
+import { cameraDeviceOf, isCameraBackground, useBackgroundMedia } from "../lib/backgrounds";
 import { timerColor, useNow, useTimerText } from "../lib/timer";
 import type {
   BackgroundFit,
@@ -62,7 +62,7 @@ export function Stage({
   playback,
   silent,
 }: Props) {
-  const isMedia = live.kind === "image" || live.kind === "video";
+  const isMedia = live.kind === "image" || live.kind === "video" || live.kind === "camera";
   const isTimer = live.kind === "timer";
   // A typed message belongs to the Slides tab, so it is styled there too —
   // the same layout a picture would use, with its Text element switched on.
@@ -390,7 +390,21 @@ function VideoClip({
     // — and Stage re-renders constantly, the timer alone ticking it — so the
     // console's mute button went dead on the screen a moment after each press.
     node.loop = playback.looping;
-    if (playback.playing) void node.play().catch(() => {});
+    if (playback.playing) {
+      // Never swallowed. A refused `play()` is the only account we get of why
+      // a screen is showing a still frame — the autoplay policy, a decode
+      // failure and a stalled network all land here and look identical from
+      // the outside. Discarding it cost a long hunt through causes that were
+      // never the problem.
+      void node.play().catch((error: unknown) => {
+        const reason = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+        console.warn(
+          `[stage] play() refused: ${reason} · muted=${node.muted} readyState=${node.readyState}` +
+            ` networkState=${node.networkState} currentTime=${node.currentTime.toFixed(2)}` +
+            ` duration=${Number.isFinite(node.duration) ? node.duration.toFixed(2) : "?"}`,
+        );
+      });
+    }
     else node.pause();
   }, [playback?.revision, playback?.playing, playback?.looping, url]);
 
@@ -485,7 +499,10 @@ function BackgroundMedia({
   dim: number;
 }) {
   const media = useBackgroundMedia(filename);
-  if (!media) return null;
+  // Checked after the hook, never before it: a conditional return above a hook
+  // would change the order React sees between renders.
+  const camera = isCameraBackground(filename);
+  if (!media && !camera) return null;
 
   const fill: React.CSSProperties = {
     position: "absolute",
@@ -494,6 +511,29 @@ function BackgroundMedia({
     height: "100%",
     objectFit: fit,
   };
+
+  // A live camera behind the words. Dimmed by the same overlay a picture uses,
+  // which matters more here than there — lyrics over a moving, unpredictably
+  // lit picture need the help.
+  if (camera) {
+    return (
+      <>
+        <CameraFeed deviceId={cameraDeviceOf(filename ?? "")} style={fill} />
+        {dim > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: `rgba(0, 0, 0, ${Math.min(100, Math.max(0, dim)) / 100})`,
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Only a file background can reach here; the camera branch has returned.
+  if (!media) return null;
 
   // Dimming is a black overlay rather than a CSS `filter` on the media itself.
   // A filter promotes the element to its own compositing layer, which WebKit
@@ -536,6 +576,101 @@ function BackgroundMedia({
 }
 
 /** A presentation slide, a local clip, or the YouTube player. */
+/**
+ * A camera on this machine, opened by whichever surface is drawing it.
+ *
+ * The picture is never sent anywhere: the console tells the screens *which*
+ * camera, and each screen asks the operating system for it directly. That is
+ * why this only works on windows running on the machine the camera is plugged
+ * into — a browser on a tablet has no route to it and says so instead.
+ *
+ * The stream is stopped on unmount without fail. A camera left open keeps its
+ * light on and holds the device against every other program on the machine,
+ * which on a Sunday morning is somebody else's stream that will not start.
+ */
+function CameraFeed({
+  deviceId,
+  style,
+  silent,
+}: {
+  deviceId: string | null;
+  style: React.CSSProperties;
+  silent?: boolean;
+}) {
+  const ref = useRef<HTMLVideoElement>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        // An exact device id would fail outright if that camera has been
+        // unplugged since it was chosen; asking for it as a preference falls
+        // back to whatever is there, which is what a service needs.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { ideal: deviceId } } : true,
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        setFailed(null);
+        if (ref.current) {
+          ref.current.srcObject = stream;
+          await ref.current.play().catch(() => {});
+        }
+      } catch (error) {
+        // Denied, in use by something else, or simply not there. Said plainly
+        // rather than left as a black rectangle nobody can explain.
+        if (!cancelled) {
+          setFailed(error instanceof Error ? error.name : "error");
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach((track) => track.stop());
+      if (ref.current) ref.current.srcObject = null;
+    };
+  }, [deviceId]);
+
+  if (failed) {
+    return (
+      <div
+        style={{
+          ...style,
+          display: "grid",
+          placeItems: "center",
+          background: "#000",
+          color: "#8b93a1",
+          fontSize: "1.6vw",
+          textAlign: "center",
+          padding: "2vw",
+        }}
+      >
+        {IS_TAURI ? `Camera unavailable (${failed})` : "A web screen cannot show this machine's camera"}
+      </div>
+    );
+  }
+
+  return (
+    <video
+      ref={ref}
+      style={{ ...style, objectFit: "cover", background: "#000" }}
+      autoPlay
+      playsInline
+      // Never any sound from a camera: the room already has the real thing,
+      // and an open microphone next to a PA system is feedback.
+      muted
+      data-silent={silent || undefined}
+    />
+  );
+}
+
 function LiveMedia({
   live,
   playback,
@@ -552,6 +687,10 @@ function LiveMedia({
     height: "100%",
     border: 0,
   };
+
+  if (live.kind === "camera") {
+    return <CameraFeed deviceId={live.cameraDeviceId} style={fill} silent={silent} />;
+  }
 
   if (live.youtubeId) {
     return <YoutubeClip id={live.youtubeId} playback={playback} style={fill} />;

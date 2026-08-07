@@ -53,6 +53,7 @@ export function slideToLive(
     sectionKind: slide.kind,
     mediaPath: slide.mediaPath ?? null,
     youtubeId: slide.youtubeId ?? null,
+    cameraDeviceId: slide.cameraDeviceId ?? null,
   };
 }
 
@@ -274,6 +275,35 @@ export function videoDeck(video: Video): Deck {
  * start. A one-slide deck, so showing and blanking it work exactly like any
  * other item.
  */
+/**
+ * A live camera, as something to show.
+ *
+ * One slide, like a clip: there is nothing to step through. The picture itself
+ * never travels — the deck carries only which camera to open, and each screen
+ * opens it locally.
+ */
+export function cameraDeck(deviceId: string, name: string): Deck {
+  return {
+    source: "camera",
+    key: `camera:${deviceId || "default"}`,
+    title: name,
+    slides: [
+      {
+        id: deviceId || "default",
+        label: name,
+        kind: "other",
+        part: "",
+        title: name,
+        number: "",
+        sectionLabel: "",
+        reference: name,
+        groupId: deviceId || "default",
+        cameraDeviceId: deviceId,
+      },
+    ],
+  };
+}
+
 export function timerDeck(caption: string, title: string): Deck {
   return {
     source: "timer",

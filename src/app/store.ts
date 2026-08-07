@@ -34,6 +34,7 @@ export type Tab =
   | "bible"
   | "presentations"
   | "video"
+  | "camera"
   | "audio"
   | "timer"
   | "displays"
@@ -273,6 +274,7 @@ const EMPTY_LIVE: LiveState = {
   sectionKind: "",
   mediaPath: null,
   youtubeId: null,
+  cameraDeviceId: null,
   revision: 0,
 };
 

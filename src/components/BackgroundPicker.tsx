@@ -4,7 +4,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import type { Backdrop, Background, BackgroundFit } from "../api/types";
 import { useStore } from "../app/store";
-import { refreshBackgrounds, useBackgrounds } from "../lib/backgrounds";
+import { CAMERA_PREFIX, refreshBackgrounds, useBackgrounds } from "../lib/backgrounds";
+import { useCameras } from "../lib/cameras";
 import { useFileDrop, useImageExtensions, within } from "../lib/fileDrop";
 import { useGridReorder } from "../lib/dragReorder";
 import { Icon } from "./ui/Icon";
@@ -58,6 +59,7 @@ export function BackgroundPicker({
    */
   const dropRef = useRef<HTMLDivElement>(null);
   const openMenu = useContextMenu();
+  const cameras = useCameras();
   const order = useStore((s) => s.settings.backgroundOrder);
   const patchSettings = useStore((s) => s.patchSettings);
 
@@ -341,6 +343,29 @@ export function BackgroundPicker({
                       icon: "trash",
                       danger: true,
                       onSelect: () => void remove(item),
+                    },
+                  ]}
+                />
+              );
+            })}
+
+            {/* Before the add tile: a camera is always available and needs no
+                importing, so it belongs with the things already there. */}
+            {cameras.map((camera) => {
+              const value = `${CAMERA_PREFIX}${camera.id}`;
+              const chosen = backdrop.media === value;
+              return (
+                <Tile
+                  key={value}
+                  color="#101820"
+                  selected={chosen}
+                  onClick={() => onChange({ media: value })}
+                  label={camera.name}
+                  menu={[
+                    {
+                      label: t("camera.useBackground"),
+                      icon: "check",
+                      onSelect: () => onChange({ media: value }),
                     },
                   ]}
                 />

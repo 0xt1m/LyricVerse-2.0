@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- macOS refuses camera access outright without this, and the string is
+	     what the operator is shown when the system asks. Merged into the
+	     bundle's own Info.plist at build time. -->
+	<key>NSCameraUsageDescription</key>
+	<string>LyricVerse shows a live camera feed on the screens you project to.</string>
+</dict>
+</plist>

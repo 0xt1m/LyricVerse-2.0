@@ -96,7 +96,9 @@ export type LiveKind =
   | "image"
   | "video"
   | "timer"
-  | "message";
+  | "message"
+  /** A live camera on the machine running the console. */
+  | "camera";
 
 /** One field per layout element — a display draws whichever ones it is
  *  configured to show. */
@@ -118,6 +120,9 @@ export interface LiveState {
   mediaPath: string | null;
   /** YouTube id, when the live item is a link rather than a file. */
   youtubeId: string | null;
+  /** Which camera to open, as the browser's device id. Empty means whichever
+   *  the system offers first. */
+  cameraDeviceId: string | null;
   revision: number;
 }
 
@@ -457,6 +462,8 @@ export interface DeckSlide {
   /** Absolute path, for a presentation slide or a local clip. */
   mediaPath?: string | null;
   youtubeId?: string | null;
+  /** Set on a camera slide: which camera the screens should open. */
+  cameraDeviceId?: string | null;
   /** A clip that restarts at the end. Carried from the video's own setting. */
   looping?: boolean;
 }

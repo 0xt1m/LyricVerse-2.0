@@ -86,3 +86,19 @@ export function seedBackgrounds(items: Background[]) {
 export function refreshBackgrounds() {
   return load(true);
 }
+
+/**
+ * A background that is a live camera rather than a stored file.
+ *
+ * The grid holds plain strings — `#rrggbb` for a colour, a file name for a
+ * picture or clip — so a camera needs a marker of its own that can never
+ * collide with either. Everything after the prefix is the device id, empty
+ * meaning "whichever camera the system offers first".
+ */
+export const CAMERA_PREFIX = "camera:";
+
+export const isCameraBackground = (value: string | null | undefined): boolean =>
+  typeof value === "string" && value.startsWith(CAMERA_PREFIX);
+
+export const cameraDeviceOf = (value: string): string | null =>
+  value.slice(CAMERA_PREFIX.length) || null;

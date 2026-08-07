@@ -9,6 +9,10 @@ const uk: Record<string, string> = {
   "tab.presentations": "Слайди",
   "tab.video": "Відео",
   "tab.timer": "Таймер",
+  "tab.camera": "Камера",
+  "camera.none": "Камер не знайдено",
+  "camera.noneHint": "Підключіть камеру. Список оновиться сам.",
+  "camera.localOnly": "Показується лише на екранах цього комп'ютера",
   "tab.audio": "Аудіо",
 
   "audio.add": "Додати аудіо…",
@@ -31,6 +35,8 @@ const uk: Record<string, string> = {
   "audio.importFailed": "Не вдалося додати: {files}",
   "audio.unsupported": "Непідтримуваний формат: {files}",
 
+  "camera.showHint": "Подвійний клік — показати камеру на екранах",
+  "camera.useBackground": "Використати як фон",
   "media.play": "Відтворити",
   "media.pause": "Пауза",
   "media.loop": "Повторювати",
@@ -281,6 +287,9 @@ const uk: Record<string, string> = {
   "history.hint": "Натисніть, щоб показати знову",
   "history.clear": "Очистити історію",
 
+  "web.waiting": "Очікування LyricVerse…",
+  "web.lost": "Зв'язок із LyricVerse втрачено",
+  "web.retrying": "Спроба відновити з'єднання…",
   "web.add": "Веб-екран",
   "web.addHint": "Екран, який відкривається у браузері на іншому пристрої",
   "web.badge": "Веб",
@@ -497,6 +506,10 @@ const en: Record<string, string> = {
   "tab.presentations": "Slides",
   "tab.video": "Video",
   "tab.timer": "Timer",
+  "tab.camera": "Camera",
+  "camera.none": "No cameras found",
+  "camera.noneHint": "Plug one in — the list updates on its own.",
+  "camera.localOnly": "Shown only on screens attached to this computer",
   "tab.audio": "Audio",
 
   "audio.add": "Add audio…",
@@ -519,6 +532,8 @@ const en: Record<string, string> = {
   "audio.importFailed": "Could not add: {files}",
   "audio.unsupported": "Unsupported format: {files}",
 
+  "camera.showHint": "Double-click to show this camera on the screens",
+  "camera.useBackground": "Use as background",
   "media.play": "Play",
   "media.pause": "Pause",
   "media.loop": "Loop",
@@ -769,6 +784,9 @@ const en: Record<string, string> = {
   "history.hint": "Click to show it again",
   "history.clear": "Clear history",
 
+  "web.waiting": "Waiting for LyricVerse…",
+  "web.lost": "Connection to LyricVerse lost",
+  "web.retrying": "Trying to reconnect…",
   "web.add": "Web screen",
   "web.addHint": "A screen you open in a browser on another device",
   "web.badge": "Web",

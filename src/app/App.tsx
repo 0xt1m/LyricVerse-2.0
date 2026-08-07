@@ -9,6 +9,7 @@ import { SettingsTab } from "../components/SettingsTab";
 import { SongsTab } from "../components/SongsTab";
 import { TimerTab } from "../components/TimerTab";
 import { VideoTab } from "../components/VideoTab";
+import { CameraTab } from "../components/CameraTab";
 import { AudioTab } from "../components/AudioTab";
 import { AudioEngine } from "../components/AudioEngine";
 import { ScreenPreview } from "../components/Preview";
@@ -37,6 +38,7 @@ const CONTENT_TABS: { id: Tab; icon: IconName; key: string }[] = [
   { id: "bible", icon: "book", key: "tab.bible" },
   { id: "presentations", icon: "image", key: "tab.presentations" },
   { id: "video", icon: "play", key: "tab.video" },
+  { id: "camera", icon: "camera", key: "tab.camera" },
   { id: "audio", icon: "music", key: "tab.audio" },
   { id: "timer", icon: "clock", key: "tab.timer" },
 ];
@@ -125,6 +127,7 @@ export function App() {
         {tab === "bible" && <BibleTab />}
         {tab === "presentations" && <PresentationsTab />}
         {tab === "video" && <VideoTab />}
+        {tab === "camera" && <CameraTab />}
         {tab === "audio" && <AudioTab />}
         {tab === "timer" && <TimerTab />}
         {tab === "displays" && <DisplaysTab />}
@@ -809,7 +812,7 @@ function useGlobalShortcuts() {
       const target = event.target as HTMLElement | null;
       const typing = !!target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
 
-      if ((event.metaKey || event.ctrlKey) && /^[1-7]$/.test(event.key)) {
+      if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
         event.preventDefault();
         setTab(TABS[Number(event.key) - 1]?.id ?? "songs");
         return;
