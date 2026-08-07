@@ -31,15 +31,21 @@ quit, so an update can never interrupt a service.
 ### macOS will refuse to open it the first time
 
 The builds are not yet signed with an Apple Developer ID, so Gatekeeper blocks
-them with *"LyricVerse is damaged and can't be opened"* — misleading wording;
-the app is fine, macOS simply cannot identify who built it. Once, after
-installing:
+them: *"Apple could not verify LyricVerse is free of malware…"*, offering only
+**Done** and **Move to Trash**. Alarming, and misleading — nothing is wrong
+with the app; macOS simply has no signature telling it who built it.
+
+Drag LyricVerse to Applications, then run this once:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/LyricVerse.app
 ```
 
-Then open it normally. This is not needed again, including after updates.
+Then open it normally. It is not needed again, including after updates.
+
+Without the terminal: press **Done**, then open **System Settings → Privacy &
+Security**, scroll to Security, and click **Open Anyway**. On current macOS the
+old right-click → Open trick no longer works, so it is one of those two.
 
 ### It starts empty
 

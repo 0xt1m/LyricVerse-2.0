@@ -417,7 +417,6 @@ export interface Bootstrap {
   settings: Settings;
   playback: Playback;
   webScreens: WebScreenStatus[];
-  lanAddress: string | null;
   displays: DisplayInfo[];
   live: LiveState;
   songbooks: SongbookMeta[];

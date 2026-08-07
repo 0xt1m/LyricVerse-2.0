@@ -101,6 +101,8 @@ export const api = {
   listDisplays: () => invoke<DisplayInfo[]>("list_displays"),
 
   listWebScreens: () => invoke<WebScreenStatus[]>("list_web_screens"),
+  /** Asked for after boot, never during it — see the Rust side for why. */
+  lanAddress: () => invoke<string | null>("lan_address"),
   addWebScreen: (name: string) => invoke<Settings>("add_web_screen", { name }),
   updateWebScreen: (id: string, patch: { name?: string; port?: number }) =>
     invoke<Settings>("update_web_screen", { id, ...patch }),

@@ -88,12 +88,14 @@ pub struct Bootstrap {
     timer: Option<Timer>,
     playback: Playback,
     web_screens: Vec<webscreen::WebScreenStatus>,
-    /// This machine's address on the network, so the Displays tab can show a
-    /// URL that another device can actually reach.
-    lan_address: Option<String>,
 }
 
-#[tauri::command]
+/// Everything the console needs to draw itself, in one call.
+///
+/// `(async)` on purpose: a plain command runs on the main thread, so anything
+/// slow inside it stops the window pumping messages and Windows paints it
+/// "Not Responding". Nothing here is allowed to hold the UI hostage.
+#[tauri::command(async)]
 fn bootstrap(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -121,7 +123,6 @@ fn bootstrap(
             display: DisplayConfig::default(),
         },
         web_screens: web.status(&settings),
-        lan_address: webscreen::lan_address().map(|ip| ip.to_string()),
         settings,
         displays,
     })
@@ -301,6 +302,17 @@ fn remove_web_screen(app: AppHandle, state: State<'_, AppState>, id: String) -> 
     sync_web_screens(&app, &stored);
     let _ = app.emit(EVENT_SETTINGS, &stored);
     Ok(stored)
+}
+
+/// This machine's address on the network, for the URLs on the Displays tab.
+///
+/// Worked out lazily rather than at startup: it opens a UDP socket to find
+/// which interface would carry the traffic, and on Windows that can raise a
+/// firewall prompt which blocks until somebody answers it. Booting the app
+/// must never wait on the network stack.
+#[tauri::command(async)]
+fn lan_address() -> Option<String> {
+    webscreen::lan_address().map(|ip| ip.to_string())
 }
 
 #[tauri::command]
@@ -1124,6 +1136,7 @@ pub fn run() {
             update_web_screen,
             remove_web_screen,
             list_web_screens,
+            lan_address,
         ])
         .run(tauri::generate_context!())
         .expect("error while running LyricVerse");

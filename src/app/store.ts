@@ -474,7 +474,6 @@ export const useStore = create<Store>((set, get) => ({
         settings: boot.settings,
         displays: boot.displays,
         webScreens: boot.webScreens,
-        lanAddress: boot.lanAddress,
         live: boot.live,
         songbooks: boot.songbooks,
         translations: boot.translations,
@@ -487,6 +486,14 @@ export const useStore = create<Store>((set, get) => ({
       set({ ready: true, bootError: errorMessage(error) });
       return;
     }
+
+    // After the console is up, not before: working this out opens a socket,
+    // and on Windows that can sit behind a firewall prompt. Only the Displays
+    // tab wants it, and it can manage without it until it arrives.
+    void api
+      .lanAddress()
+      .then((lanAddress) => set({ lanAddress }))
+      .catch(() => {});
 
     void on<LiveState>(EVENT.live, (live) => set({ live }));
     void on<Timer | null>(EVENT.timer, (timer) => set({ timer }));
