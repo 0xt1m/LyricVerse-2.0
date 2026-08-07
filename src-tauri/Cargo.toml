@@ -1,6 +1,6 @@
 [package]
 name = "lyricverse"
-version = "2.1.1"
+version = "2.1.2"
 description = "Song & Scripture presentation for worship services"
 authors = ["LyricVerse"]
 edition = "2021"
