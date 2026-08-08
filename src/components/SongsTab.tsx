@@ -46,6 +46,7 @@ export function SongsTab() {
   const cursor = useStore((s) => s.cursor);
   const liveIndex = useStore((s) => s.liveIndex);
   const patchSettings = useStore((s) => s.patchSettings);
+  const refreshLibrary = useStore((s) => s.refreshLibrary);
   const loadDeck = useStore((s) => s.loadDeck);
   const go = useStore((s) => s.go);
   const reportError = useStore((s) => s.reportError);
@@ -388,6 +389,29 @@ export function SongsTab() {
     [song, edit, removeEmptySong],
   );
 
+  /**
+   * The manager can do this too, but a name is all a new book needs, and at
+   * setup — or the first time the app is opened at all — that should not mean
+   * a trip through a modal.
+   */
+  const newSongbook = async () => {
+    const wanted = await dialogs.prompt({
+      title: t("songbook.new"),
+      label: t("common.name"),
+      placeholder: t("songbook.namePlaceholder"),
+      confirmLabel: t("common.create"),
+    });
+    if (!wanted?.trim()) return;
+    try {
+      const meta = await api.createSongbook(wanted.trim());
+      await refreshLibrary();
+      await patchSettings({ activeSongbook: meta.name });
+      toast(t("songbook.created", { name: meta.name }), "success");
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
   const newSong = async () => {
     if (!songbook) return;
     await flushSave();
@@ -690,7 +714,21 @@ export function SongsTab() {
           </div>
 
           <div className="panel__body">
-            {ordered.length === 0 ? (
+            {/* With no songbook there is nowhere to put a song, and the New
+                song button is dead: say so here rather than leave an empty
+                list that looks like a book with nothing in it. */}
+            {!songbook ? (
+              <Empty
+                title={t("songbook.none")}
+                hint={t("songbook.noneHint")}
+                action={
+                  <button className="btn btn--primary" onClick={() => void newSongbook()}>
+                    <Icon name="plus" size={13} />
+                    {t("songbook.create")}
+                  </button>
+                }
+              />
+            ) : ordered.length === 0 ? (
               <Empty
                 title={songs.length === 0 ? t("songs.none") : t("songs.noMatch")}
                 hint={songs.length === 0 ? t("songs.noneHint") : t("songs.noMatchHint")}
@@ -779,6 +817,13 @@ export function SongsTab() {
               }
             >
               <Icon name="arrowDown" />
+            </button>
+            <button
+              className="btn btn--icon"
+              onClick={() => void newSongbook()}
+              title={t("songbook.new")}
+            >
+              <Icon name="plus" />
             </button>
             <button
               className="btn btn--icon"

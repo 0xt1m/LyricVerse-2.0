@@ -6,7 +6,7 @@ import { useStore } from "../app/store";
 import { bibleDeck, type ParallelTranslation } from "../lib/deck";
 import { normalize, splitAt } from "../lib/text";
 import { Icon } from "./ui/Icon";
-import { Empty, SearchInput, useDebounced, useScrollIntoView } from "./ui/controls";
+import { Empty, Modal, SearchInput, Switch, useDebounced, useScrollIntoView } from "./ui/controls";
 import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
 
 export function BibleTab() {
@@ -53,6 +53,8 @@ export function BibleTab() {
   const [textQuery, setTextQuery] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [resolved, setResolved] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [deleteFile, setDeleteFile] = useState(false);
   /** Bumped on every jump so the landing effect re-runs even when the target
       chapter is already open — otherwise Enter on the current chapter did
       nothing at all. */
@@ -304,6 +306,33 @@ export function BibleTab() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /**
+   * Taking a translation off the list, with erasing the module a separate,
+   * deliberate act — the same two steps a songbook is removed in. A module is
+   * often a file somebody was sent once and cannot easily find again, so a
+   * mis-click here must not be what destroys it.
+   */
+  const confirmRemove = async () => {
+    if (!removing) return;
+    try {
+      await api.deleteTranslation(removing, deleteFile);
+      // A translation shown alongside is named in the settings, and nothing
+      // else prunes that list — left there, the name would come back the
+      // moment a module with the same name was imported again.
+      if (settings.secondaryTranslations.includes(removing)) {
+        await patchSettings({
+          secondaryTranslations: settings.secondaryTranslations.filter((item) => item !== removing),
+        });
+      }
+      setRemoving(null);
+      setDeleteFile(false);
+      await refreshLibrary();
+      toast(t("bible.removed", { name: removing }), "success");
+    } catch (error) {
+      reportError(error);
+    }
+  };
+
   const importTranslation = async () => {
     const picked = await open({
       multiple: false,
@@ -379,6 +408,14 @@ export function BibleTab() {
           </select>
           <button className="btn btn--icon" onClick={() => void importTranslation()} title={t("bible.import")}>
             <Icon name="plus" />
+          </button>
+          <button
+            className="btn btn--icon btn--danger"
+            onClick={() => translation && setRemoving(translation)}
+            disabled={!translation}
+            title={t("bible.remove")}
+          >
+            <Icon name="trash" />
           </button>
         </div>
         {translations.length > 1 && (
@@ -567,6 +604,25 @@ export function BibleTab() {
         </div>
       </section>
 
+      {removing && (
+        <Modal
+          title={`${t("common.delete")}: ${removing}`}
+          onClose={() => setRemoving(null)}
+          footer={
+            <>
+              <button className="btn" onClick={() => setRemoving(null)}>
+                {t("common.cancel")}
+              </button>
+              <button className="btn btn--danger" onClick={() => void confirmRemove()}>
+                {t("common.confirm")}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, color: "var(--text-muted)" }}>{t("bible.removeHint")}</p>
+          <Switch checked={deleteFile} onChange={setDeleteFile} label={t("bible.removeFile")} />
+        </Modal>
+      )}
     </div>
   );
 }
