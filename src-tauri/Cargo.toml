@@ -20,6 +20,19 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Fetching the translations offered on lyricverse.app. The features match the
+# ones the updater already turns on, so cargo unifies them and this costs no
+# extra compilation — and rustls rather than the platform's TLS means a build
+# still needs no OpenSSL anywhere.
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls-no-provider", "json", "stream",
+] }
+# The provider behind that TLS. Installed explicitly at startup rather than
+# left to whichever dependency happens to get there first.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+futures-util = { version = "0.3", default-features = false }
+# Checking a downloaded module against the checksum the catalogue gives.
+sha2 = "0.10"
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "1"
 regex = "1"
@@ -29,6 +42,10 @@ base64 = "0.22"
 image = { version = "0.25", default-features = false, features = [
     "png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "qoi", "pnm", "tga",
 ] }
+
+[dev-dependencies]
+# Only for the network test in `catalog.rs`, which is `#[ignore]`d.
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [profile.release]
 codegen-units = 1

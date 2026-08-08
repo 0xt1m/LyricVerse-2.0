@@ -6,8 +6,9 @@ import { useStore } from "../app/store";
 import { bibleDeck, type ParallelTranslation } from "../lib/deck";
 import { normalize, splitAt } from "../lib/text";
 import { Icon } from "./ui/Icon";
-import { Empty, Modal, SearchInput, Switch, useDebounced, useScrollIntoView } from "./ui/controls";
+import { Empty, Modal, SearchInput, useDebounced, useScrollIntoView } from "./ui/controls";
 import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
+import { TranslationStore } from "./TranslationStore";
 
 export function BibleTab() {
   const t = useStore((s) => s.t);
@@ -54,7 +55,8 @@ export function BibleTab() {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [resolved, setResolved] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [deleteFile, setDeleteFile] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const openMenu = useContextMenu();
   /** Bumped on every jump so the landing effect re-runs even when the target
       chapter is already open — otherwise Enter on the current chapter did
       nothing at all. */
@@ -315,7 +317,10 @@ export function BibleTab() {
   const confirmRemove = async () => {
     if (!removing) return;
     try {
-      await api.deleteTranslation(removing, deleteFile);
+      // The file goes with it. Leaving it behind only looked like
+      // caution: the folder is re-scanned at startup, so an unregistered
+      // module came back by itself on the next launch.
+      await api.deleteTranslation(removing, true);
       // A translation shown alongside is named in the settings, and nothing
       // else prunes that list — left there, the name would come back the
       // moment a module with the same name was imported again.
@@ -325,7 +330,6 @@ export function BibleTab() {
         });
       }
       setRemoving(null);
-      setDeleteFile(false);
       await refreshLibrary();
       toast(t("bible.removed", { name: removing }), "success");
     } catch (error) {
@@ -360,13 +364,20 @@ export function BibleTab() {
             title={t("bible.noTranslations")}
             hint={t("bible.noTranslationsHint")}
             action={
-              <button className="btn btn--primary" onClick={() => void importTranslation()}>
-                <Icon name="plus" size={13} />
-                {t("bible.import")}
-              </button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn--primary" onClick={() => setDownloading(true)}>
+                  <Icon name="arrowDown" size={13} />
+                  {t("bible.download")}
+                </button>
+                <button className="btn" onClick={() => void importTranslation()}>
+                  <Icon name="folder" size={13} />
+                  {t("bible.import")}
+                </button>
+              </div>
             }
           />
         </section>
+        {downloading && <TranslationStore onClose={() => setDownloading(false)} />}
       </div>
     );
   }
@@ -375,7 +386,7 @@ export function BibleTab() {
 
   return (
     <div className="workspace">
-      <section className="panel" style={{ flex: "0 0 220px" }}>
+      <section className="panel" style={{ flex: "0 0 262px" }}>
         <div className="panel__head">
           <SearchInput value={bookFilter} onChange={setBookFilter} placeholder={t("bible.books")} />
         </div>
@@ -406,7 +417,20 @@ export function BibleTab() {
               </option>
             ))}
           </select>
-          <button className="btn btn--icon" onClick={() => void importTranslation()} title={t("bible.import")}>
+          <button
+            className="btn btn--icon"
+            title={t("bible.add")}
+            onClick={(event) =>
+              openMenu(event, [
+                {
+                  label: t("bible.download"),
+                  icon: "arrowDown",
+                  onSelect: () => setDownloading(true),
+                },
+                { label: t("bible.import"), icon: "folder", onSelect: () => void importTranslation() },
+              ])
+            }
+          >
             <Icon name="plus" />
           </button>
           <button
@@ -604,6 +628,8 @@ export function BibleTab() {
         </div>
       </section>
 
+      {downloading && <TranslationStore onClose={() => setDownloading(false)} />}
+
       {removing && (
         <Modal
           title={`${t("common.delete")}: ${removing}`}
@@ -620,7 +646,6 @@ export function BibleTab() {
           }
         >
           <p style={{ margin: 0, color: "var(--text-muted)" }}>{t("bible.removeHint")}</p>
-          <Switch checked={deleteFile} onChange={setDeleteFile} label={t("bible.removeFile")} />
         </Modal>
       )}
     </div>

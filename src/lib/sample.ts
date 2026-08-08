@@ -169,11 +169,20 @@ const VERSES: Record<string, BibleSample[]> = {
   ],
 };
 
-/** How many samples each pool holds, so the caller can cycle through them. */
-export const SAMPLE_COUNT = 4;
-
 function pool<T>(table: Record<string, T[]>, language: string): T[] {
   return table[language] ?? table.en!;
+}
+
+/**
+ * How many samples this kind of layout actually has to cycle through.
+ *
+ * Not one number for everything: a message slide and a timer caption have a
+ * single sample each and ignore the variant entirely, so a counter that said
+ * "1/4" was promising three more presses that changed nothing on the canvas.
+ */
+export function sampleCount(kind: "song" | "bible" | "media" | "timer", language: string): number {
+  if (kind === "media" || kind === "timer") return 1;
+  return kind === "bible" ? pool(VERSES, language).length : pool(SONGS, language).length;
 }
 
 /** The following sample, so a "next up" element has something to show. */
@@ -200,6 +209,7 @@ export function sampleLive(
       reference: "",
       translation: "",
       nextUp: "",
+      nextMediaPath: null,
       sectionKind: "",
       mediaPath: null,
       youtubeId: null,
@@ -222,7 +232,11 @@ export function sampleLive(
       sectionLabel: "",
       reference: "",
       translation: "",
-      nextUp: "",
+      // Something for the "coming next" box to hold while it is being
+      // positioned. On a real deck of pictures that box shows a thumbnail of
+      // the slide ahead, which the editor has no picture to stand in for.
+      nextUp: language === "uk" ? "Далі: оголошення" : "Next: announcements",
+      nextMediaPath: null,
       sectionKind: "",
       mediaPath: null,
       youtubeId: null,
@@ -252,6 +266,7 @@ export function sampleLive(
       reference: `${sample.book} ${sample.chapter}:${sample.verse}`,
       translation,
       nextUp: t_next(kind, language, variant),
+      nextMediaPath: null,
       sectionKind: "scripture",
       mediaPath: null,
       youtubeId: null,
@@ -271,6 +286,7 @@ export function sampleLive(
     reference: `${sample.number} · ${sample.title}`,
     translation: "",
     nextUp: t_next(kind, language, variant),
+    nextMediaPath: null,
     sectionKind: "chorus",
     mediaPath: null,
     youtubeId: null,

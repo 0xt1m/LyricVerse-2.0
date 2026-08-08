@@ -32,7 +32,6 @@ pub struct Settings {
     pub blank_on_switch: bool,
     /// Parts of the window the operator can put away. All default to shown.
     pub show_status_bar: bool,
-    pub show_preview: bool,
     pub show_filmstrip: bool,
     /// The preview-and-history panel on the content tabs.
     pub show_side_panel: bool,
@@ -65,6 +64,14 @@ pub struct Settings {
     pub favourite_songs: BTreeMap<String, Vec<i64>>,
     /// Sort the song list with favourites at the top.
     pub favourites_first: bool,
+    /// The order the operator dragged the songs into, keyed by songbook name
+    /// and holding song ids.
+    ///
+    /// Here rather than in the songbook for the same reason favourites are:
+    /// those files are the v1 format and are still opened by the old app, so
+    /// a new column in one would be a change the other cannot read. A book
+    /// nobody has reordered has no entry at all and stays in number order.
+    pub song_order: BTreeMap<String, Vec<i64>>,
     /// The background picker's grid, in the order the operator arranged it.
     ///
     /// Entries are either a flat colour (`#rrggbb`) or the file name of an
@@ -85,7 +92,6 @@ impl Default for Settings {
             secondary_translations: Vec::new(),
             blank_on_switch: false,
             show_status_bar: true,
-            show_preview: true,
             show_filmstrip: true,
             show_side_panel: true,
             side_panel_placement: "right".into(),
@@ -98,6 +104,7 @@ impl Default for Settings {
             audio_volume: 1.0,
             favourite_songs: BTreeMap::new(),
             favourites_first: false,
+            song_order: BTreeMap::new(),
             background_order: default_palette(),
         }
     }
@@ -259,6 +266,7 @@ pub fn builtin_presets() -> Vec<Preset> {
             passive_background: "#08090b".into(),
             song: Layout::song_confidence(),
             bible: Layout::bible_confidence(),
+            media: Layout::media_confidence(),
             next_preview: true,
             ..Preset::default()
         },
@@ -297,10 +305,12 @@ pub const SONG_ELEMENTS: [ElementId; 6] = [
     ElementId::Timer,
 ];
 
-/// A picture or a clip fills the screen by itself, so the only things here
-/// are the words of a typed message slide and the timer that may overlay
-/// either. Anything more would be drawing text over someone's artwork.
-pub const MEDIA_ELEMENTS: [ElementId; 2] = [ElementId::Body, ElementId::Timer];
+/// A picture or a clip fills the screen by itself, so there is little here:
+/// the words of a typed message slide, the timer that may overlay either, and
+/// what is coming next — which is off unless a screen is facing the platform,
+/// because on the projector it would be drawing over someone's artwork.
+pub const MEDIA_ELEMENTS: [ElementId; 3] =
+    [ElementId::Body, ElementId::NextUp, ElementId::Timer];
 
 /// The timer as the content itself: the digits, plus a line of text under
 /// them for "Doors open at 10" and the like.
@@ -314,6 +324,18 @@ pub const BIBLE_ELEMENTS: [ElementId; 6] = [
     ElementId::NextUp,
     ElementId::Timer,
 ];
+
+/// Where the coming slide sits when a deck of pictures is on screen: a
+/// thumbnail in the bottom corner, roughly 16:9 so a picture fills it instead
+/// of being letterboxed into a strip, and clear of the timer's corner.
+fn media_next_up(visible: bool) -> Element {
+    Element {
+        visible,
+        rect: Rect { x: 74.0, y: 72.0, width: 24.0, height: 24.0 },
+        opacity: 0.85,
+        ..Element::labelled(ElementId::NextUp, "center")
+    }
+}
 
 /// A timer box that sits out of the way until it is switched on.
 fn timer_element() -> Element {
@@ -529,6 +551,7 @@ impl Layout {
                 // The words of a message slide. Ignored by pictures and clips,
                 // which fill the screen themselves.
                 Element::body(Rect { x: 8.0, y: 14.0, width: 84.0, height: 66.0 }),
+                media_next_up(false),
                 Element {
                     visible: false,
                     rect: Rect { x: 70.0, y: 4.0, width: 26.0, height: 10.0 },
@@ -536,6 +559,21 @@ impl Layout {
                 },
             ],
         }
+    }
+
+    /// The same, for a screen facing the platform: the coming slide is on by
+    /// default, since seeing it is the whole reason that screen is there.
+    fn media_confidence() -> Self {
+        let mut layout = Self::media_default();
+        // The body box shortens to leave the strip along the bottom free,
+        // rather than a message slide's words running underneath the preview.
+        if let Some(body) = layout.elements.iter_mut().find(|e| e.id == ElementId::Body) {
+            body.rect = Rect { x: 8.0, y: 10.0, width: 84.0, height: 58.0 };
+        }
+        if let Some(next) = layout.elements.iter_mut().find(|e| e.id == ElementId::NextUp) {
+            next.visible = true;
+        }
+        layout
     }
 
     fn timer_default() -> Self {
@@ -719,7 +757,7 @@ pub fn repair(settings: &mut Settings) {
         }
         fill(&mut preset.song, &SONG_ELEMENTS, &preset.id, true);
         fill(&mut preset.bible, &BIBLE_ELEMENTS, &preset.id, false);
-        fill_media(&mut preset.media);
+        fill_media(&mut preset.media, &preset.id);
         fill_fixed(&mut preset.timer, &TIMER_ELEMENTS, &Layout::timer_default());
     }
 
@@ -738,8 +776,13 @@ pub fn repair(settings: &mut Settings) {
     }
 }
 
-fn fill_media(layout: &mut Layout) {
-    fill_fixed(layout, &MEDIA_ELEMENTS, &Layout::media_default());
+fn fill_media(layout: &mut Layout, preset_id: &str) {
+    let defaults = if preset_id == PRESET_CONFIDENCE {
+        Layout::media_confidence()
+    } else {
+        Layout::media_default()
+    };
+    fill_fixed(layout, &MEDIA_ELEMENTS, &defaults);
 }
 
 /// Rebuilds a layout that has one fixed element list, keeping any edits.
@@ -961,6 +1004,65 @@ mod tests {
         assert_eq!(settings.presets.len(), 3);
         let standard = settings.presets.iter().find(|p| p.id == PRESET_STANDARD).unwrap();
         assert_eq!(standard.song.elements.len(), SONG_ELEMENTS.len());
+    }
+
+    /// An operator upgrading has a settings file whose media layouts predate
+    /// the "coming next" box. They must gain it — switched on for the screen
+    /// facing the platform, and off everywhere else, because on the projector
+    /// it would be a thumbnail over the middle of somebody's artwork.
+    #[test]
+    fn repair_adds_the_coming_slide_to_older_media_layouts() {
+        let mut settings = Settings::default();
+        for preset in &mut settings.presets {
+            preset.media.elements.retain(|element| element.id != ElementId::NextUp);
+        }
+        repair(&mut settings);
+
+        for preset in &settings.presets {
+            let next = preset
+                .media
+                .elements
+                .iter()
+                .find(|element| element.id == ElementId::NextUp)
+                .expect("every media layout holds a next-up box");
+            assert_eq!(
+                next.visible,
+                preset.id == PRESET_CONFIDENCE,
+                "next-up visibility for preset {}",
+                preset.id
+            );
+        }
+    }
+
+    /// A box the operator turned off stays off through a later repair —
+    /// defaults fill gaps, they do not overrule a decision.
+    #[test]
+    fn repair_keeps_a_hidden_coming_slide_hidden() {
+        let mut settings = Settings::default();
+        let confidence = settings
+            .presets
+            .iter_mut()
+            .find(|preset| preset.id == PRESET_CONFIDENCE)
+            .unwrap();
+        for element in &mut confidence.media.elements {
+            if element.id == ElementId::NextUp {
+                element.visible = false;
+            }
+        }
+        repair(&mut settings);
+
+        let confidence = settings
+            .presets
+            .iter()
+            .find(|preset| preset.id == PRESET_CONFIDENCE)
+            .unwrap();
+        let next = confidence
+            .media
+            .elements
+            .iter()
+            .find(|element| element.id == ElementId::NextUp)
+            .unwrap();
+        assert!(!next.visible);
     }
 
     #[test]

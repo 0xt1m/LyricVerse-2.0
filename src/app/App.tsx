@@ -12,7 +12,6 @@ import { VideoTab } from "../components/VideoTab";
 import { CameraTab } from "../components/CameraTab";
 import { AudioTab } from "../components/AudioTab";
 import { AudioEngine } from "../components/AudioEngine";
-import { ScreenPreview } from "../components/Preview";
 import { SidePanel } from "../components/SidePanel";
 import { screenName } from "../lib/screens";
 import { mediaSrc } from "../api/net";
@@ -87,14 +86,8 @@ export function App() {
   const bottomDock = settings.sidePanelPlacement === "bottom";
 
   // Rows are built from what is actually shown, so a hidden section gives its
-  // height back to the tab rather than leaving a gap behind. The foot is only
-  // as tall as what is left in it: a strip on its own needs no room for a
-  // preview card.
-  const foot = settings.showPreview
-    ? "var(--footer-h)"
-    : settings.showFilmstrip
-      ? "var(--strip-h)"
-      : null;
+  // height back to the tab rather than leaving a gap behind.
+  const foot = settings.showFilmstrip ? "var(--strip-h)" : null;
   const rows = ["var(--header-h)", settings.showStatusBar ? "var(--status-h)" : null, "1fr", foot]
     .filter(Boolean)
     .join(" ");
@@ -226,11 +219,6 @@ function ViewMenu() {
             label: t("view.statusBar"),
             checked: settings.showStatusBar,
             onSelect: () => void patchSettings({ showStatusBar: !settings.showStatusBar }),
-          },
-          {
-            label: t("view.preview"),
-            checked: settings.showPreview,
-            onSelect: () => void patchSettings({ showPreview: !settings.showPreview }),
           },
           {
             label: t("view.filmstrip"),
@@ -682,37 +670,17 @@ function StatusBar() {
   );
 }
 
-/** The foot of the window: the live output and the whole deck. Either half can
- *  be put away on its own; with both off the row disappears entirely. */
-function Transport() {
-  const showPreview = useStore((s) => s.settings.showPreview);
-  const showFilmstrip = useStore((s) => s.settings.showFilmstrip);
-  return (
-    <footer className="transport">
-      {showPreview && <TransportPreview />}
-      {showFilmstrip && <Filmstrip />}
-    </footer>
-  );
-}
-
 /**
- * What one screen is actually showing, in the chrome.
+ * The foot of the window: the whole deck, laid out end to end.
  *
- * The same `Stage` the projector runs, at the screen's true aspect ratio — so
- * this is the output, not an impression of it. One screen at a time rather
- * than all of them: at this size a row of thumbnails would be unreadable, and
- * the operator is normally watching a single output.
+ * It used to carry a copy of the live output beside the strip as well. The
+ * side panel shows the same thing, larger and with the history under it, so
+ * the second one was 208px of window height spent saying what was already on
+ * screen — and on a laptop that came out of the tab doing the work.
  */
-function TransportPreview() {
-  const chosen = useStore((s) => s.previewDisplayId);
-  const setPreviewDisplay = useStore((s) => s.setPreviewDisplay);
-  return (
-    <ScreenPreview
-      chosen={chosen}
-      onPick={setPreviewDisplay}
-      className="transport__preview"
-    />
-  );
+function Transport() {
+  const showFilmstrip = useStore((s) => s.settings.showFilmstrip);
+  return <footer className="transport">{showFilmstrip && <Filmstrip />}</footer>;
 }
 
 /**

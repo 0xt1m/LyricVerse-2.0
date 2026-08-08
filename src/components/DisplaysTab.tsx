@@ -22,7 +22,7 @@ import { useContextMenu } from "./ui/ContextMenu";
 import { useDialogs } from "./ui/Dialogs";
 import { LayoutCanvas, roundRect } from "./LayoutCanvas";
 import { BackgroundPicker } from "./BackgroundPicker";
-import { SAMPLE_COUNT, sampleLive } from "../lib/sample";
+import { sampleCount, sampleLive } from "../lib/sample";
 import { PreviewCard } from "./Preview";
 import { asDisplayInfo, useScreenTargets, type ScreenTarget } from "../lib/screens";
 
@@ -78,6 +78,7 @@ export function DisplaysTab() {
   // happens to be live: arranging the scripture layout must not show lyrics,
   // and the canvas must not change under the operator when a slide advances.
   const canvasLive = sampleLive(content, settings.language, variant);
+  const samples = sampleCount(content, settings.language);
 
   // The matching built-in, used by every "reset" button. A preset the operator
   // created has no pristine counterpart, so it falls back to Standard.
@@ -418,10 +419,14 @@ export function DisplaysTab() {
               <button
                 className="btn btn--sm"
                 title={t("layout.sampleHint")}
-                onClick={() => setVariant((current) => (current + 1) % SAMPLE_COUNT)}
+                // Nothing to cycle to when the pool holds one: the counter
+                // still says so rather than the button vanishing, so it is
+                // clear this is all there is.
+                disabled={samples < 2}
+                onClick={() => setVariant((current) => (current + 1) % samples)}
               >
                 <Icon name="refresh" size={12} />
-                {t("layout.sample")} {(variant % SAMPLE_COUNT) + 1}/{SAMPLE_COUNT}
+                {t("layout.sample")} {(variant % samples) + 1}/{samples}
               </button>
             </div>
 
@@ -1214,18 +1219,32 @@ function BackgroundGroup({
 }) {
   const t = useStore((s) => s.t);
   const presets = useStore((s) => s.settings.presets);
+  const displays = useStore((s) => s.settings.displays);
   const setPresets = useStore((s) => s.setPresets);
   const toast = useStore((s) => s.toast);
 
   /**
-   * Copies this backdrop onto every other preset.
+   * The modes the screens are on right now, this one aside.
    *
-   * The background already covers songs, scripture, slides and the timer —
-   * it belongs to the preset, not to one of its layouts. What it does *not*
-   * cross is presets, so this is the one that saves real work: set the look
-   * once and give it to the confidence screen and the stream feed too.
+   * What separates the two buttons below. A mode nobody has a screen on is
+   * still worth setting up in advance — but it is not what somebody means
+   * when they say "make my screens look like this".
    */
-  const applyEverywhere = () => {
+  const modesInUse = useMemo(() => {
+    const wanted = new Set(Object.values(displays).map((config) => config.preset));
+    wanted.delete(preset.id);
+    return wanted;
+  }, [displays, preset.id]);
+
+  /**
+   * Copies this backdrop onto the modes `accept` picks out, and says how many
+   * it reached.
+   *
+   * The background already covers songs, scripture, slides and the timer — it
+   * belongs to the mode, not to one of its layouts. What it does *not* cross
+   * is modes, which is the work these buttons save.
+   */
+  const copyBackdrop = (accept: (item: Preset) => boolean): number => {
     const backdrop = {
       background: preset.background,
       backgroundMedia: preset.backgroundMedia,
@@ -1236,20 +1255,34 @@ function BackgroundGroup({
       passiveBackgroundFit: preset.passiveBackgroundFit,
       passiveBackgroundDim: preset.passiveBackgroundDim,
     };
-    void setPresets(
-      presets.map((item) =>
-        item.id === preset.id
-          ? item
-          : {
-              ...item,
-              ...backdrop,
-              // A chroma key has to stay a flat keyable colour, so it keeps
-              // its own fill rather than being given someone's photograph.
-              ...(item.constantBackground ? { backgroundMedia: null, passiveBackgroundMedia: null } : {}),
-            },
-      ),
-    );
-    toast(t("style.backgroundAppliedAll", { n: presets.length - 1 }), "success");
+    let touched = 0;
+    const next = presets.map((item) => {
+      if (item.id === preset.id || !accept(item)) return item;
+      touched += 1;
+      return {
+        ...item,
+        ...backdrop,
+        // A chroma key has to stay a flat keyable colour, so it keeps its own
+        // fill rather than being given someone's photograph.
+        ...(item.constantBackground
+          ? { backgroundMedia: null, passiveBackgroundMedia: null }
+          : {}),
+      };
+    });
+    if (touched > 0) void setPresets(next);
+    return touched;
+  };
+
+  const applyToEveryMode = () => {
+    const touched = copyBackdrop(() => true);
+    toast(t("style.backgroundAppliedModes", { n: touched }), "success");
+  };
+
+  const applyToEveryDisplay = () => {
+    copyBackdrop((item) => modesInUse.has(item.id));
+    // Screens, not modes: that is what was asked for, and two screens sharing
+    // a mode would otherwise be reported as one.
+    toast(t("style.backgroundAppliedDisplays", { n: Object.keys(displays).length }), "success");
   };
   return (
     <div className="group">
@@ -1335,14 +1368,25 @@ function BackgroundGroup({
         )}
 
         {presets.length > 1 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <button className="btn btn--sm" onClick={applyEverywhere}>
-              <Icon name="copy" size={12} />
-              {t("style.backgroundApplyAll")}
-            </button>
-            <span className="field__hint" style={{ flex: 1, minWidth: 180 }}>
-              {t("style.backgroundApplyAllHint")}
-            </span>
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="btn btn--sm" onClick={applyToEveryMode}>
+                <Icon name="copy" size={12} />
+                {t("style.backgroundApplyModes")}
+              </button>
+              {/* Nothing to carry anywhere when every screen is already on
+                  this mode — the button would report work it did not do. */}
+              <button
+                className="btn btn--sm"
+                onClick={applyToEveryDisplay}
+                disabled={modesInUse.size === 0}
+                title={t("style.backgroundApplyDisplaysHint")}
+              >
+                <Icon name="monitor" size={12} />
+                {t("style.backgroundApplyDisplays")}
+              </button>
+            </div>
+            <span className="field__hint">{t("style.backgroundApplyHint")}</span>
           </div>
         )}
       </div>

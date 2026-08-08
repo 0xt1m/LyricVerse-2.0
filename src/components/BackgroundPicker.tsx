@@ -357,7 +357,7 @@ export function BackgroundPicker({
               return (
                 <Tile
                   key={value}
-                  color="#101820"
+                  camera
                   selected={chosen}
                   onClick={() => onChange({ media: value })}
                   label={camera.name}
@@ -426,6 +426,7 @@ export function BackgroundPicker({
 function Tile({
   item,
   color,
+  camera,
   selected,
   dragging,
   label,
@@ -437,6 +438,8 @@ function Tile({
   item?: Background;
   /** Renders a flat colour instead of a file. */
   color?: string;
+  /** A camera on this machine rather than a colour or a file. */
+  camera?: boolean;
   selected: boolean;
   /** Being carried to a new place in the grid. */
   dragging?: boolean;
@@ -488,6 +491,36 @@ function Tile({
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           )
+        ) : camera ? (
+          // A device, not a colour. Naming it the way a hex value is named —
+          // shouted in capitals across the middle of the tile, wrapping onto
+          // two lines — made "MacBook Air Desk View Camera" the loudest thing
+          // in the grid and still did not say what it was.
+          <span
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "grid",
+              gap: 5,
+              placeItems: "center",
+              alignContent: "center",
+              padding: "0 8px",
+              color: "var(--text-muted)",
+            }}
+          >
+            <Icon name="camera" size={17} />
+            <span
+              style={{
+                fontSize: 10.5,
+                maxWidth: "100%",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {label}
+            </span>
+          </span>
         ) : (
           <span
             style={{
@@ -508,7 +541,7 @@ function Tile({
             {label}
           </span>
         )}
-        {item?.kind === "video" && (
+        {(item?.kind === "video" || camera) && (
           <span
             style={{
               position: "absolute",
@@ -523,7 +556,7 @@ function Tile({
               color: "#fff",
             }}
           >
-            VIDEO
+            {camera ? "LIVE" : "VIDEO"}
           </span>
         )}
       </button>

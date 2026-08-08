@@ -127,7 +127,14 @@ export function Stage({
           if (element.id === "timer") {
             return <TimerElement key={element.id} element={element} timer={timer} height={height} />;
           }
-          if (isMedia) return null;
+          // A picture or a clip fills the screen, so nothing is drawn over it
+          // — except, on a screen facing the platform, the slide coming after
+          // it. Somebody on stage cannot see the operator's console, and "what
+          // is next" is the one thing they need from this screen.
+          if (isMedia && element.id === "nextUp" && live.nextMediaPath) {
+            return <NextSlide key={element.id} element={element} path={live.nextMediaPath} height={height} />;
+          }
+          if (isMedia && element.id !== "nextUp") return null;
           const text = contentOf(element.id, live);
           if (!text.trim()) return null;
           // "Next up" can be a picture of the coming slide instead of a line
@@ -156,6 +163,54 @@ export function Stage({
             />
           );
         })}
+    </div>
+  );
+}
+
+/**
+ * The coming slide as a picture, in the "next up" element's own box.
+ *
+ * A deck of slides gives `nextUp` nothing to say — the next slide is a
+ * photograph, not a line of words — so a confidence screen showing pictures
+ * had nothing at all to offer the platform. This is the same box, holding the
+ * thing itself.
+ *
+ * `contain`, so a slide of a different shape is shown whole rather than
+ * cropped: on a screen this size the point is recognising it, and a cropped
+ * thumbnail of a text slide can be unrecognisable.
+ */
+function NextSlide({
+  element,
+  path,
+  height,
+}: {
+  element: LayoutElement;
+  path: string;
+  height: number;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: `${element.rect.x}%`,
+        top: `${element.rect.y}%`,
+        width: `${element.rect.width}%`,
+        height: `${element.rect.height}%`,
+        opacity: element.opacity,
+        border: `${Math.max(1, height * 0.0015)}px solid ${element.color}`,
+        borderRadius: height * 0.008,
+        overflow: "hidden",
+        background: "#000",
+        pointerEvents: "none",
+      }}
+    >
+      <img
+        key={path}
+        src={mediaSrc(path)}
+        alt=""
+        draggable={false}
+        style={{ width: "100%", height: "100%", objectFit: "contain" }}
+      />
     </div>
   );
 }

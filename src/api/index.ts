@@ -18,6 +18,7 @@ import type {
   SongSummary,
   SongbookMeta,
   TranslationMeta,
+  RemoteTranslation,
   VerseRow,
   Playback,
   WebScreenStatus,
@@ -37,6 +38,7 @@ export const EVENT = {
   playback: "lyricverse://playback",
   menu: "lyricverse://menu",
   webScreens: "lyricverse://webscreens",
+  download: "lyricverse://download",
 } as const;
 
 export const api = {
@@ -122,6 +124,7 @@ export const api = {
     reference: string;
     translation: string;
     nextUp: string;
+    nextMediaPath?: string | null;
     sectionKind: string;
     mediaPath?: string | null;
     youtubeId?: string | null;
@@ -167,6 +170,11 @@ export const api = {
     invoke<TranslationMeta>("import_translation", { path, name: name ?? null }),
   deleteTranslation: (name: string, deleteFile: boolean) =>
     invoke<void>("delete_translation", { name, deleteFile }),
+  openDataFolder: () => invoke<void>("open_data_folder"),
+  listDownloadableTranslations: () =>
+    invoke<RemoteTranslation[]>("list_downloadable_translations"),
+  downloadTranslation: (entry: RemoteTranslation) =>
+    invoke<TranslationMeta>("download_translation", { entry }),
 };
 
 /** Backend errors arrive as plain strings; normalise anything else. */

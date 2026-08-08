@@ -89,9 +89,12 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Ship no songbooks and no Bible translations. They belong to a
-          # congregation, not to the program, and much of that text may not be
-          # redistributed. A fresh install is filled from Settings.
+          # Keep the builder's own songbooks and translations out of the
+          # installers. They belong to a congregation, not to the program, and
+          # much of that text may not be redistributed.
+          #
+          # What everybody does get is `seed-default/` — the small library
+          # chosen to go out, which is in git and is unaffected by this.
           LYRICVERSE_EMPTY_SEED: "1"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

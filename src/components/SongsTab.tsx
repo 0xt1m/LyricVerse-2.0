@@ -212,19 +212,37 @@ export function SongsTab() {
     [songbook, settings.favouriteSongs, patchSettings],
   );
 
+  /**
+   * The order the operator dragged this book into, when they have.
+   *
+   * A song added since — or one the order has never heard of — keeps its
+   * place at the end in number order, rather than jumping to the top because
+   * it is missing from a list it was never in.
+   */
+  const arranged = useMemo(() => {
+    const wanted = songbook ? settings.songOrder[songbook] : undefined;
+    if (!wanted?.length) return songs;
+    const rank = new Map(wanted.map((id, index) => [id, index]));
+    return [...songs].sort(
+      (a, b) =>
+        (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER) ||
+        a.id - b.id,
+    );
+  }, [songs, songbook, settings.songOrder]);
+
   const filtered = useMemo(() => {
     const raw = query.trim();
-    if (!raw) return songs;
+    if (!raw) return arranged;
     if (/^\d+$/.test(raw)) {
-      const exact = songs.filter((s) => String(s.id) === raw);
-      const prefix = songs.filter((s) => String(s.id).startsWith(raw) && String(s.id) !== raw);
+      const exact = arranged.filter((s) => String(s.id) === raw);
+      const prefix = arranged.filter((s) => String(s.id).startsWith(raw) && String(s.id) !== raw);
       return [...exact, ...prefix];
     }
     const needle = normalize(raw);
-    return songs.filter(
+    return arranged.filter(
       (s) => normalize(s.title).includes(needle) || normalize(s.firstLine).includes(needle),
     );
-  }, [songs, query]);
+  }, [arranged, query]);
 
   /**
    * Favourites first, when asked for.
@@ -238,6 +256,110 @@ export function SongsTab() {
     const rest = filtered.filter((item) => !favourites.has(item.id));
     return [...liked, ...rest];
   }, [filtered, favourites, settings.favouritesFirst]);
+
+  /**
+   * Dragging is only offered while the list on screen *is* the book's own
+   * order — no search, no favourites lifted to the top.
+   *
+   * The identity check is the whole rule: both memos above hand back the array
+   * they were given when they have nothing to do, so this is true exactly when
+   * nothing has been filtered or regrouped. Dropping a song into a filtered
+   * list would mean guessing where it belongs among the songs not on screen,
+   * and dropping one into a favourites-first list would write an order that
+   * the favourites sort immediately overrules.
+   */
+  const canReorder = ordered === arranged && ordered.length > 1;
+
+  /** Held while the drag runs, so the rows follow the cursor without waiting
+   *  for a round trip to the settings file for every row crossed. */
+  const [dragOrder, setDragOrder] = useState<SongSummary[] | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const view = dragOrder ?? ordered;
+  // What the first move rearranges. A ref because the move arrives from a
+  // window listener that was installed before this render.
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
+  /**
+   * The song being carried, by id.
+   *
+   * The reorder hook counts in row positions, and a position is only as good
+   * as the agreement between the array and the DOM at that instant — which is
+   * what put the wrong song in hand. The song is fixed here at the moment it
+   * is picked up, so whatever the indices do, the one that moves is the one
+   * that was grabbed. Only *where* it lands comes from the hook, and that is
+   * a question about the cursor, which positions answer correctly.
+   *
+   * A ref for the logic, since a move can arrive before a render, and state
+   * for the row that has to draw itself as lifted.
+   */
+  const carriedId = useRef<number | null>(null);
+  const [carried, setCarried] = useState<number | null>(null);
+
+  /**
+   * Set on the first move of a drag and only then.
+   *
+   * It is what tells the save below that a drag happened at all. Seeding the
+   * order on pointer-down instead — which is what this did at first — set it
+   * while `dragging` was still null, so the save fired on the press, wrote
+   * nothing new, and cleared the order out from under the drag that was about
+   * to start. Nothing ever moved.
+   */
+  const moveSong = useCallback((_from: number, to: number) => {
+    setDragOrder((current) => {
+      const list = current ?? viewRef.current;
+      const from = list.findIndex((item) => item.id === carriedId.current);
+      const landing = Math.max(0, Math.min(to, list.length - 1));
+      if (from < 0 || from === landing) return current;
+      const next = [...list];
+      const [moved] = next.splice(from, 1);
+      if (!moved) return current;
+      next.splice(landing, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const { dragging, beginPress } = useGridReorder({
+    containerRef: listRef,
+    onMove: moveSong,
+    // A press that never travelled: put the song down again. Selecting is the
+    // row's own click handler's job, not this one's.
+    onClick: () => {
+      carriedId.current = null;
+      setCarried(null);
+    },
+    count: view.length,
+  });
+
+  /** Whether the press became a drag, so letting go of one that did not is
+   *  not mistaken for the end of one that did. */
+  const wasDragging = useRef(false);
+
+  // Written once, when the song is let go — not on every row it crosses, which
+  // would be a settings file rewritten a dozen times for one drag.
+  useEffect(() => {
+    if (dragging !== null) {
+      wasDragging.current = true;
+      return;
+    }
+    // Only the end of a real drag gets here. Without this guard the effect
+    // also ran on the press — `dragging` is null until the pointer has
+    // travelled — and put the song down before it had been picked up.
+    if (!wasDragging.current) return;
+    wasDragging.current = false;
+    carriedId.current = null;
+    setCarried(null);
+    if (!dragOrder || !songbook) return;
+    const ids = dragOrder.map((item) => item.id);
+    void patchSettings({ songOrder: { ...settings.songOrder, [songbook]: ids } }).then(() =>
+      // Cleared only once the stored order is back, or the list would flick
+      // to its old arrangement for a frame.
+      setDragOrder(null),
+    );
+    // `settings.songOrder` is read, not depended on: it changes as a result of
+    // this write, and re-running would queue the same save again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging, dragOrder, songbook, patchSettings]);
 
   /**
    * Picking several songs at once, for deleting or exporting them together.
@@ -734,10 +856,20 @@ export function SongsTab() {
                 hint={songs.length === 0 ? t("songs.noneHint") : t("songs.noMatchHint")}
               />
             ) : (
-              <div className="list">
-                {ordered.map((item, index) => (
+              <div className="list" ref={listRef}>
+                {view.map((item, index) => (
                   <SongRow
                     key={item.id}
+                    dragging={carried === item.id}
+                    onGrip={
+                      canReorder
+                        ? (event) => {
+                            carriedId.current = item.id;
+                            setCarried(item.id);
+                            beginPress(event, index);
+                          }
+                        : undefined
+                    }
                     item={item}
                     selected={item.id === selectedId}
                     marked={picked.isMulti && picked.selected.has(index)}
@@ -1065,6 +1197,8 @@ function SongRow({
   selected,
   marked,
   favourite,
+  dragging,
+  onGrip,
   onSelect,
   onContextSelect,
   onFavourite,
@@ -1075,6 +1209,11 @@ function SongRow({
   /** One of several picked for a bulk action, rather than the one being edited. */
   marked: boolean;
   favourite: boolean;
+  /** This row is the one being carried. */
+  dragging?: boolean;
+  /** Starts a reorder. Absent when the list is not in its own order — see
+   *  `canReorder` — and the handle is then not drawn at all. */
+  onGrip?: (event: React.PointerEvent) => void;
   onSelect: (event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => void;
   onContextSelect: () => void;
   onFavourite: () => void;
@@ -1083,12 +1222,18 @@ function SongRow({
   const ref = useScrollIntoView(selected);
   const openMenu = useContextMenu();
   return (
-    <div className="row__wrap">
+    <div className="row__wrap" data-dragging={dragging || undefined}>
       <button
         ref={ref as React.Ref<HTMLButtonElement>}
         className="row"
         aria-selected={selected || marked}
         data-marked={marked || undefined}
+        data-grip={onGrip ? "" : undefined}
+        // The whole row drags, not only the handle: an 18px target that
+        // appears on hover is easy to miss, and a press that grabs nothing
+        // reads as the feature being broken. A press that never travels is
+        // still a click, so selecting a song is untouched.
+        onPointerDown={onGrip}
         onClick={onSelect}
         onContextMenu={(event) => {
           // Right-clicking acts on the row under the cursor, so selection
@@ -1102,6 +1247,20 @@ function SongRow({
           <span className="row__title">{item.title}</span>
         </span>
       </button>
+      {onGrip && (
+        <span
+          className="row__grip"
+          title="⠿"
+          onPointerDown={onGrip}
+          // Kept as its own target as well: on the row it is what tells you
+          // the row can be dragged at all.
+          // Not a <button>: it does nothing on click or on Enter, and one that
+          // answered the keyboard would be a stop on the way to every song.
+          aria-hidden="true"
+        >
+          <Icon name="grip" size={12} />
+        </span>
+      )}
       {/* Shown on hover, or always once it is a favourite — a list of stars
           nobody has pressed would be noise. */}
       <button

@@ -15,6 +15,12 @@ const repoRoot = resolve(projectRoot, "..");
 const legacyRoot = join(repoRoot, "LyricVerse");
 /** This project's own copy — the source of truth. */
 const localSeed = join(projectRoot, "seed");
+/**
+ * The library every install starts with: tracked in git, and shipped even by a
+ * release, which `seed/` deliberately is not. Only redistributable text
+ * belongs here — see seed-default/README.md.
+ */
+const defaultSeed = join(projectRoot, "seed-default");
 const seedRoot = join(projectRoot, "src-tauri", "resources", "seed");
 
 /** Prefers the local copy, and falls back to the v1 tree beside it. */
@@ -43,12 +49,15 @@ async function copyMatching(fromDir, toDir, extensions, { skip = [] } = {}) {
 }
 
 /**
- * A release ships with an empty library.
+ * Keep this machine's own library out of the build.
  *
  * Songbooks and Bible translations belong to a congregation, not to the
  * program: they are often licensed text that must not be redistributed, and a
  * fresh install is expected to be filled from Settings. CI sets this, so it
  * holds even when a release is built on a machine whose own `seed/` is full.
+ *
+ * It does not touch `seed-default/`, which is the small set chosen to go out
+ * to everybody and is in git for exactly that reason.
  */
 const emptyRelease = process.env.LYRICVERSE_EMPTY_SEED === "1";
 
@@ -60,29 +69,44 @@ async function main() {
   await rm(seedRoot, { recursive: true, force: true });
   await mkdir(seedRoot, { recursive: true });
 
-  if (emptyRelease) {
-    await writeFile(
-      join(seedRoot, "SEED_INFO.json"),
-      JSON.stringify({ songbooks: [], translations: [], empty: true }, null, 2) + "\n",
-      "utf8",
-    );
-    console.log("[prepare-resources] LYRICVERSE_EMPTY_SEED=1 — shipping no songbooks or translations.");
-    return;
-  }
-
+  // The default library first, so that when a name collides it is the chosen
+  // file that ships and this machine's copy of the same translation that is
+  // passed over — not whichever happened to be copied last.
   const songbooks = await copyMatching(
-    sourceDir("Songbooks", "Songbooks"),
+    join(defaultSeed, "Songbooks"),
     join(seedRoot, "Songbooks"),
     SONGBOOK_EXT,
   );
-  // `1.SQLite3` is an unnamed leftover in the v1 tree — it is not referenced by
-  // bible_translations.json, so it is not worth ~14 MB of bundle.
   const translations = await copyMatching(
-    sourceDir("BibleTranslations", "bible_translations"),
+    join(defaultSeed, "BibleTranslations"),
     join(seedRoot, "BibleTranslations"),
     TRANSLATION_EXT,
-    { skip: ["1.SQLite3"] },
   );
+
+  if (emptyRelease) {
+    console.log(
+      "[prepare-resources] LYRICVERSE_EMPTY_SEED=1 — this machine's own seed/ is not being shipped.",
+    );
+  } else {
+    songbooks.push(
+      ...(await copyMatching(
+        sourceDir("Songbooks", "Songbooks"),
+        join(seedRoot, "Songbooks"),
+        SONGBOOK_EXT,
+        { skip: songbooks },
+      )),
+    );
+    // `1.SQLite3` is an unnamed leftover in the v1 tree — it is not referenced by
+    // bible_translations.json, so it is not worth ~14 MB of bundle.
+    translations.push(
+      ...(await copyMatching(
+        sourceDir("BibleTranslations", "bible_translations"),
+        join(seedRoot, "BibleTranslations"),
+        TRANSLATION_EXT,
+        { skip: ["1.SQLite3", ...translations] },
+      )),
+    );
+  }
 
   // Note: no Bible module is generated here any more. Releases ship with no
   // scripture and no songbooks at all — see `emptyRelease` below — and the
@@ -133,16 +157,26 @@ async function main() {
   }
 }
 
-/** name -> filename mappings from the shipped JSON manifests, inverted to
- *  filename -> name. The local copy first, then the v1 tree. */
+/**
+ * name -> filename mappings from the manifests beside the data files, inverted
+ * to filename -> name, so a staged file is registered under the name somebody
+ * chose for it rather than whatever its file is called.
+ *
+ * In order of authority: the default library, this machine's own seed, then
+ * the v1 tree. First to name a file wins — the one nearest to hand is the one
+ * that was meant.
+ */
 function readLegacyManifest(jsonName) {
   const candidates =
     jsonName === "songbooks.json"
       ? [
+          join(defaultSeed, "Songbooks", "songbooks.json"),
           join(localSeed, "Songbooks", "songbooks.json"),
           join(legacyRoot, "Songbooks", "songbooks.json"),
         ]
       : [
+          join(defaultSeed, "BibleTranslations", "translations.json"),
+          join(localSeed, "BibleTranslations", "translations.json"),
           join(localSeed, "BibleTranslations", "bible_translations.json"),
           join(legacyRoot, "bible_translations", "bible_translations.json"),
         ];
@@ -152,10 +186,12 @@ function readLegacyManifest(jsonName) {
     try {
       const parsed = JSON.parse(readFileSync(path, "utf8"));
       for (const [name, value] of Object.entries(parsed)) {
-        if (value && typeof value.filename === "string") out.set(value.filename, name);
+        if (value && typeof value.filename === "string" && !out.has(value.filename)) {
+          out.set(value.filename, name);
+        }
       }
     } catch {
-      /* a malformed v1 manifest just means we fall back to filenames */
+      /* a malformed manifest just means we fall back to filenames */
     }
   }
   return out;

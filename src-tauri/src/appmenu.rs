@@ -20,9 +20,8 @@ use crate::settings::Settings;
 
 /// Menu id → the setting it toggles. The id is what comes back in the event,
 /// and the field name is what the frontend already calls it.
-pub const ITEMS: [(&str, &str); 6] = [
+pub const ITEMS: [(&str, &str); 5] = [
     ("view.statusBar", "Status bar"),
-    ("view.preview", "Preview panel"),
     ("view.filmstrip", "Slide strip"),
     ("view.sidePanel", "Side panel"),
     // Where that panel goes. Ticks rather than a submenu: two mutually
@@ -55,7 +54,6 @@ pub struct MenuChecks(Mutex<HashMap<String, CheckMenuItem<Wry>>>);
 fn is_on(settings: &Settings, id: &str) -> bool {
     match id {
         "view.statusBar" => settings.show_status_bar,
-        "view.preview" => settings.show_preview,
         "view.filmstrip" => settings.show_filmstrip,
         "view.sidePanel" => settings.show_side_panel,
         // Anything that is not "bottom" is the default, "right".
@@ -70,7 +68,6 @@ fn is_on(settings: &Settings, id: &str) -> bool {
 pub fn toggle(settings: &mut Settings, id: &str) -> bool {
     match id {
         "view.statusBar" => settings.show_status_bar = !settings.show_status_bar,
-        "view.preview" => settings.show_preview = !settings.show_preview,
         "view.filmstrip" => settings.show_filmstrip = !settings.show_filmstrip,
         "view.sidePanel" => settings.show_side_panel = !settings.show_side_panel,
         // Picking an edge is a choice, not a toggle: clicking the one already

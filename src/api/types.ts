@@ -37,6 +37,25 @@ export interface TranslationMeta {
   error: string | null;
 }
 
+/** A translation lyricverse.app is offering, as the catalogue describes it. */
+export interface RemoteTranslation {
+  name: string;
+  language: string;
+  description: string;
+  url: string;
+  /** Size in bytes; 0 when the catalogue does not say. */
+  bytes: number;
+  sha256: string | null;
+}
+
+/** How far a download has got, pushed while it runs. */
+export interface DownloadProgress {
+  name: string;
+  received: number;
+  /** 0 when the server did not say how long the file is. */
+  total: number;
+}
+
 export interface BookInfo {
   number: number;
   shortName: string;
@@ -115,6 +134,9 @@ export interface LiveState {
   translation: string;
   /** The slide queued after this one — what a confidence screen is for. */
   nextUp: string;
+  /** The picture on that queued slide, when it carries one instead of words.
+   *  A deck of slides has nothing for `nextUp` to say otherwise. */
+  nextMediaPath: string | null;
   sectionKind: string;
   /** Absolute path of the image or video filling the screen. */
   mediaPath: string | null;
@@ -210,8 +232,9 @@ export const SONG_ELEMENTS: ElementId[] = [
   "nextUp",
   "timer",
 ];
-/** The words of a message slide, and the timer that may overlay either. */
-export const MEDIA_ELEMENTS: ElementId[] = ["body", "timer"];
+/** The words of a message slide, what is coming next on a screen facing the
+ *  platform, and the timer that may overlay either. */
+export const MEDIA_ELEMENTS: ElementId[] = ["body", "nextUp", "timer"];
 
 /** The timer as the content itself: the digits, plus a line of text below. */
 export const TIMER_ELEMENTS: ElementId[] = ["timer", "body"];
@@ -338,7 +361,6 @@ export interface Settings {
   blankOnSwitch: boolean;
   /** Parts of the window the operator can put away. */
   showStatusBar: boolean;
-  showPreview: boolean;
   showFilmstrip: boolean;
   /** The preview-and-history panel on the content tabs. */
   showSidePanel: boolean;
@@ -358,6 +380,9 @@ export interface Settings {
   favouriteSongs: Record<string, number[]>;
   /** Sort the song list with favourites at the top. */
   favouritesFirst: boolean;
+  /** Song ids in the order they were dragged into, by songbook name. A book
+   *  that was never reordered is absent and stays in number order. */
+  songOrder: Record<string, number[]>;
   /** The background picker's grid in order: `#rrggbb` colours and file names
    *  of imported pictures and clips, mixed. */
   backgroundOrder: string[];

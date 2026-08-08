@@ -150,17 +150,9 @@ export function SongbookManager({ onClose }: { onClose: () => void }) {
                   },
                 ])
               }
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "7px 10px",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                background: "var(--panel-sunken)",
-              }}
+              className="library-row"
             >
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="library-row__main">
                 <div className="row__title">{book.name}</div>
                 <div className="row__sub">
                   {book.error ?? `${book.filename} · ${t("songs.count", { n: book.songCount })}`}

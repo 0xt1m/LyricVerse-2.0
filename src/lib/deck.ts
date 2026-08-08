@@ -35,6 +35,9 @@ export function slideToLive(
 ): Omit<LiveState, "revision"> | null {
   const slide = deck.slides[index];
   if (!slide) return null;
+  const next = deck.slides
+    .slice(index + 1)
+    .find((item) => item.part.trim() !== "" || item.mediaPath);
   return {
     kind: slide.liveKind ?? deck.source,
     bodyPart: slide.part,
@@ -45,11 +48,13 @@ export function slideToLive(
     translation: deck.source === "bible" ? translationLabel : "",
     // What a confidence screen shows underneath the current words.
     //
-    // The next slide with *words on it*, not simply the next slide. An empty
-    // section is a deliberate blank in the running order, but telling the
-    // platform "coming next: nothing" helps nobody — they need the line they
-    // will actually be singing after it.
-    nextUp: deck.slides.slice(index + 1).find((item) => item.part.trim() !== "")?.part ?? "",
+    // The next slide with *something on it*, not simply the next slide. An
+    // empty section is a deliberate blank in the running order, but telling
+    // the platform "coming next: nothing" helps nobody — they need the line
+    // they will actually be singing after it. For a deck of pictures that
+    // something is the picture, which is why both travel.
+    nextUp: next?.part.trim() ? next.part : "",
+    nextMediaPath: next?.mediaPath ?? null,
     sectionKind: slide.kind,
     mediaPath: slide.mediaPath ?? null,
     youtubeId: slide.youtubeId ?? null,

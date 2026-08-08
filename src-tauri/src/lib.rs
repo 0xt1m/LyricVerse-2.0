@@ -6,6 +6,7 @@ pub mod songs;
 mod appmenu;
 mod audio;
 mod backgrounds;
+mod catalog;
 mod display;
 mod error;
 mod fonts;
@@ -394,6 +395,7 @@ fn set_live(app: AppHandle, state: State<'_, AppState>, input: LiveInput) -> Res
             reference: input.reference,
             translation: input.translation,
             next_up: input.next_up,
+            next_media_path: input.next_media_path,
             section_kind: input.section_kind,
             media_path: input.media_path,
             youtube_id: input.youtube_id,
@@ -616,6 +618,24 @@ async fn import_translation(
     Ok(meta)
 }
 
+/// The translations lyricverse.app is offering. Network work, so `async`:
+/// a plain command would hold the main thread and paint the window as
+/// "Not Responding" while a slow site answers.
+#[tauri::command(async)]
+async fn list_downloadable_translations() -> Result<Vec<catalog::RemoteTranslation>> {
+    catalog::list().await
+}
+
+#[tauri::command(async)]
+async fn download_translation(
+    app: AppHandle,
+    entry: catalog::RemoteTranslation,
+) -> Result<TranslationMeta> {
+    let meta = catalog::download(&app, &entry).await?;
+    let _ = app.emit(EVENT_LIBRARY, ());
+    Ok(meta)
+}
+
 #[tauri::command]
 fn delete_translation(
     app: AppHandle,
@@ -630,6 +650,30 @@ fn delete_translation(
 }
 
 // --- Misc -----------------------------------------------------------------
+
+/// Shows the app's data folder in the system file manager.
+///
+/// Copying the path to the clipboard is not the same thing: dropping a MyBible
+/// module or a backup of a songbook in there by hand means having the folder
+/// actually open, and on macOS the path is inside `~/Library`, which the Finder
+/// hides from anybody who has not learnt the keystroke for it.
+#[tauri::command]
+fn open_data_folder(app: AppHandle) -> Result<()> {
+    let dir = paths::data_dir(&app)?;
+
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = std::process::Command::new("explorer");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = std::process::Command::new("xdg-open");
+
+    // Spawned, not waited on. Explorer returns a non-zero exit code even when
+    // it has done exactly what was asked, and no file manager anywhere is
+    // worth holding the console still for.
+    command.arg(&dir).spawn()?;
+    Ok(())
+}
 
 // --- Timer ----------------------------------------------------------------
 
@@ -985,6 +1029,12 @@ fn lock<T>(mutex: &Mutex<T>) -> Result<std::sync::MutexGuard<'_, T>> {
 // --- Entry point ----------------------------------------------------------
 
 pub fn run() {
+    // Installed here rather than left to whichever dependency reaches TLS
+    // first: both the updater and the translation catalogue build a client
+    // that refuses to start without one, and "no process-level
+    // CryptoProvider" is a poor thing to discover on a Sunday.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         // The updater checks a signed manifest on GitHub; `process` is what
@@ -1073,6 +1123,7 @@ pub fn run() {
             sync_displays,
             identify_displays,
             open_test_window,
+            open_data_folder,
             get_live,
             set_live,
             blank,
@@ -1094,6 +1145,8 @@ pub fn run() {
             get_passage,
             import_translation,
             delete_translation,
+            list_downloadable_translations,
+            download_translation,
             get_timer,
             set_timer,
             get_playback,

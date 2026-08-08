@@ -50,6 +50,10 @@ pub struct LiveState {
     pub translation: String,
     /// The slide queued after this one. A confidence screen exists to show it.
     pub next_up: String,
+    /// The picture on that queued slide, when it has one instead of words —
+    /// a deck of slides is what a confidence screen struggles with otherwise,
+    /// since "coming next" is an image nobody can describe in a line of text.
+    pub next_media_path: Option<String>,
     /// "verse" | "chorus" | "bridge" | "other" | "scripture" — drives the
     /// operator-side colour coding.
     pub section_kind: String,
@@ -75,6 +79,7 @@ impl Default for LiveState {
             reference: String::new(),
             translation: String::new(),
             next_up: String::new(),
+            next_media_path: None,
             section_kind: String::new(),
             media_path: None,
             youtube_id: None,
@@ -103,6 +108,8 @@ pub struct LiveInput {
     pub translation: String,
     #[serde(default)]
     pub next_up: String,
+    #[serde(default)]
+    pub next_media_path: Option<String>,
     #[serde(default)]
     pub section_kind: String,
     #[serde(default)]

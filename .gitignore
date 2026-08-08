@@ -15,6 +15,10 @@ src-tauri/resources/
 # redistributed — and they are tens of megabytes of binary that would sit in
 # every clone for ever. A build with no seed simply starts empty, and the app
 # imports songbooks and translations from the Settings and Songs tabs.
+#
+# `seed-default/` is deliberately NOT ignored: it is the small library every
+# install starts with, so it has to travel with the repository to reach a
+# release build. Only redistributable text goes in there.
 seed/
 
 # Cached download used by scripts/build-english-bible.mjs

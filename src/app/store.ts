@@ -124,11 +124,8 @@ interface Store {
   blanked: boolean;
   /** Bumped by the library event so tabs know to reload their lists. */
   libraryRevision: number;
-  /** Which screen the footer preview shows; null follows the first enabled. */
-  previewDisplayId: string | null;
-  setPreviewDisplay: (id: string | null) => void;
-  /** The same, for the side panel. Kept apart from the footer's so that with
-   *  both on show they can watch two different screens. */
+  /** Which screen the side panel's preview shows; null follows the first
+   *  enabled one. */
   sidePreviewDisplayId: string | null;
   setSidePreviewDisplay: (id: string | null) => void;
 
@@ -236,7 +233,6 @@ const EMPTY_SETTINGS: Settings = {
   secondaryTranslations: [],
   blankOnSwitch: false,
   showStatusBar: true,
-  showPreview: true,
   showFilmstrip: true,
   showSidePanel: true,
   sidePanelPlacement: "right",
@@ -248,6 +244,7 @@ const EMPTY_SETTINGS: Settings = {
   audioVolume: 1,
   favouriteSongs: {},
   favouritesFirst: false,
+  songOrder: {},
   presets: [],
   displays: {},
 };
@@ -271,6 +268,7 @@ const EMPTY_LIVE: LiveState = {
   reference: "",
   translation: "",
   nextUp: "",
+  nextMediaPath: null,
   sectionKind: "",
   mediaPath: null,
   youtubeId: null,
@@ -459,7 +457,6 @@ export const useStore = create<Store>((set, get) => ({
   plans: [],
   openRequest: null,
   songCommand: null,
-  previewDisplayId: null,
   sidePreviewDisplayId: null,
   history: [],
 
@@ -527,8 +524,6 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setTab: (tab) => set({ tab }),
-
-  setPreviewDisplay: (previewDisplayId) => set({ previewDisplayId }),
 
   setSidePreviewDisplay: (sidePreviewDisplayId) => set({ sidePreviewDisplayId }),
 

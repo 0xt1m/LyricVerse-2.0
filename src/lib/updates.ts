@@ -45,6 +45,35 @@ export async function fetchUpdate(): Promise<string | null> {
 }
 
 /**
+ * The same check, asked for on purpose from Settings.
+ *
+ * Separate from `fetchUpdate` because the answers are different, not the work.
+ * At startup silence is right for every outcome; somebody who has just pressed
+ * a button is owed one — including "I could not reach the internet", which
+ * `fetchUpdate` deliberately reports as "nothing to do".
+ */
+export type UpdateCheck =
+  | { state: "waiting"; version: string }
+  /** In order: already current, not a packaged build, or the check failed. */
+  | { state: "current" | "unavailable" | "failed" };
+
+export async function checkForUpdate(): Promise<UpdateCheck> {
+  if (!IS_TAURI) return { state: "unavailable" };
+  if (pending) return { state: "waiting", version: pending.version };
+  try {
+    const update = await check();
+    if (!update) return { state: "current" };
+    await update.download();
+    pending = update;
+    return { state: "waiting", version: update.version };
+  } catch {
+    // No wi-fi in the hall, GitHub having a bad day, or a build that was
+    // never signed. All the operator can do about any of them is try later.
+    return { state: "failed" };
+  }
+}
+
+/**
  * Applies a waiting update and closes the app.
  *
  * Returns false when there was nothing waiting, so the caller can let the

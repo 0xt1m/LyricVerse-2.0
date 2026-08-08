@@ -46,10 +46,20 @@
 
   --header-h: 52px;
   --status-h: 50px;
-  /* Fits a 16:9 preview plus its screen picker, with room around both. */
-  --footer-h: 208px;
-  /* The foot with the strip alone in it. */
-  --strip-h: 98px;
+  /* One height for a single-line control — input, select, the search box.
+     A panel head is this plus its own padding, so a head holding only a title
+     lines up with one holding a search box instead of sitting 7px short of
+     it. */
+  --control-h: 33px;
+
+  /* One slide card, and the row built to hold it.
+     The row was a round number picked by hand, and it was 9px short of the
+     card — which `.filmstrip` centres, so the shortfall was split between the
+     top and the bottom and both edges of every card were shaved off. Derived
+     now, so moving one moves the other: the card, the strip's own padding
+     (2 + 6), the transport's (12 + 12) and its top border. */
+  --strip-tile-h: 74px;
+  --strip-h: calc(var(--strip-tile-h) + 8px + 24px + 1px);
   /* Wide enough for the longest tab label ("Налаштування") without clipping. */
   --rail-w: 100px;
   /* Enough for a readable 16:9 preview and a history row that still has room
@@ -140,7 +150,7 @@ button {
      176-verse chapter — would widen the column past the window and drag the
      header and body out with it. */
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: var(--header-h) var(--status-h) 1fr var(--footer-h);
+  grid-template-rows: var(--header-h) var(--status-h) 1fr var(--strip-h);
   height: 100%;
   overflow: hidden;
 }
@@ -296,7 +306,21 @@ button {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
-  min-height: 46px;
+  /* Every head is the same height, whatever it holds — a search box, a title
+     set in 15px, or only a label. The panels of a tab stand side by side, so a
+     head a pixel out of step with its neighbour is visible right across the
+     window. Fixed rather than a minimum, so nothing can push it out, and the
+     border is in the sum because `box-sizing` is border-box everywhere. */
+  height: calc(var(--control-h) + 20px + 1px);
+}
+
+/* A control in a head is the head's own control height. The song title input
+   is set larger than the search box beside it, and left to itself it stood
+   taller and took the head with it. */
+.panel__head .input,
+.panel__head .select {
+  height: var(--control-h);
+  padding-block: 4px;
 }
 
 .panel__title {
@@ -421,6 +445,34 @@ button {
   font-size: 11.5px;
   color: var(--text-faint);
   margin-top: 1px;
+}
+
+/* A row inside a group: something named on the left, its controls hard right.
+   Songbooks, translations, and the translations offered for download.
+
+   `min-width: 0` is the load-bearing part. `.group__body` is a grid, and a
+   grid item will not shrink below the width of its own content — so a long
+   description (a copyright line, a file name) widened the row past the dialog
+   and carried the button out with it, off the edge and beyond clicking. */
+.library-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-sunken);
+}
+
+.library-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Never squeezed to make room for the words beside it. */
+.library-row__action {
+  flex: none;
 }
 
 .empty {
@@ -742,6 +794,13 @@ button {
   font-size: 11.5px;
 }
 
+/* One height for every single-line control, so a row of them lines up. The
+   textarea is deliberately left out: it is sized by its rows. */
+.input,
+.select {
+  min-height: var(--control-h);
+}
+
 .input,
 .select,
 .textarea {
@@ -1015,15 +1074,6 @@ button {
   min-height: 84px;
 }
 
-.transport__preview {
-  width: 208px;
-  flex: none;
-}
-
-.transport__preview.preview__pane--empty {
-  height: 117px;
-}
-
 .preview__caption {
   display: flex;
   align-items: center;
@@ -1237,8 +1287,8 @@ button {
   position: fixed;
   /* Just above the transport, or in the corner proper when there is no
      transport to clear. `--foot-h` is set by the shell from the row it
-     actually built; the static `--footer-h` would leave messages stranded
-     mid-window whenever the preview and strip were both put away. */
+     actually built, so putting the strip away moves the toasts down with
+     it instead of leaving them stranded mid-window. */
   bottom: calc(var(--foot-h, 0px) + 14px);
   right: 14px;
   display: grid;
@@ -1270,12 +1320,66 @@ button {
 
 /* --- Settings forms ------------------------------------------------------ */
 
+/* Cards laid side by side rather than in one tall column: the console window
+   is at least 980px wide, and a single column left two thirds of it empty
+   while pushing half the settings below the fold. Each card keeps its own
+   height (`align-items: start`) instead of being stretched to match whatever
+   sits beside it. */
 .settings {
-  padding: 16px 20px 32px;
+  padding: 18px 22px 36px;
   display: grid;
-  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+  align-items: start;
   align-content: start;
-  max-width: 720px;
+  gap: 18px;
+  max-width: 1080px;
+}
+
+/* A card that reads across the full width: a reference table nobody scans in
+   a narrow column, or a paragraph that would be squeezed beside something. */
+.group--wide {
+  grid-column: 1 / -1;
+}
+
+/* Label on the left, its control hard right — the shape most settings rows
+   take once the label is not sitting above the control. */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+}
+
+.settings-row__label {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+}
+
+.settings-row__sub {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* The shortcut list, in as many columns as will fit. */
+.shortcuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 0 26px;
+}
+
+.shortcut {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut__name {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
 }
 
 .group {
@@ -1656,7 +1760,7 @@ button {
   flex: none;
   box-sizing: border-box;
   width: 104px;
-  height: 74px;
+  height: var(--strip-tile-h);
   padding: 16px 6px 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -1873,6 +1977,59 @@ button {
 .row__wrap {
   position: relative;
   display: block;
+}
+
+/* The reorder handle, in the same hover-revealed spot as the star. Its own
+   control rather than the whole row: the row selects, opens a menu and answers
+   the keyboard, and a drag begun anywhere on it would have to guess. */
+.row__grip {
+  position: absolute;
+  top: 50%;
+  right: 27px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  /* The pointer stream has to stay with this element for the whole drag, and
+     a touch that scrolls the list would steal it away. */
+  touch-action: none;
+}
+
+.row__wrap:hover .row__grip {
+  opacity: 1;
+}
+
+.row__grip:active {
+  cursor: grabbing;
+}
+
+/* The row being carried.
+   Lifted rather than faded. Nothing follows the cursor during a drag — the
+   rows simply swap — so with the carried row ghosted at 45% the eye caught
+   the *other* row moving and it looked like the wrong song had been grabbed.
+   Raised, outlined and opaque, it is the one thing on the list that moves. */
+.row__wrap[data-dragging] .row {
+  background: var(--panel-raised);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--accent-line), 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.row__wrap[data-dragging] {
+  position: relative;
+  z-index: 1;
+  cursor: grabbing;
+}
+
+/* Room for the handle beside the star, so a long title does not run under
+   either of them. */
+.row[data-grip] .row__main {
+  padding-right: 22px;
 }
 
 .row__star {
