@@ -232,6 +232,7 @@ const EMPTY_SETTINGS: Settings = {
   activeTranslation: null,
   secondaryTranslations: [],
   blankOnSwitch: false,
+  uiScale: 1,
   showStatusBar: true,
   showFilmstrip: true,
   showSidePanel: true,

@@ -15,6 +15,7 @@
 //! Without one, the blocks are simply taken in the order they appear, which is
 //! what a file from elsewhere will mean.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -139,6 +140,292 @@ fn to_text(song: &Song) -> String {
         out.push_str(&format!("[Order]\n{}\n", names.join("\n")));
     }
     out.trim_end().to_string()
+}
+
+/// How many lines one slide holds when a dump has to be cut up. Four lines of
+/// lyric is about what a projector can show at a readable size.
+const LINES_PER_SLIDE: usize = 4;
+
+/// A song built out of a wall of pasted lyrics.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LyricsDraft {
+    pub sections: Vec<Section>,
+    /// Section ids in playing order. A chorus appears here as often as it is
+    /// sung, but only once in `sections`.
+    pub order: Vec<String>,
+}
+
+/// Turns lyrics copied off a website into a song somebody can drive.
+///
+/// What arrives from a lyrics site is one unbroken column of lines: no blank
+/// lines, no headings, and the chorus written out in full every time it comes
+/// round. Three things have to happen for that to be usable on a Sunday:
+///
+/// - It is cut into slides of a few lines each, because a projector cannot
+///   show forty lines and nobody can read them if it does.
+/// - Blocks that repeat become *one* section used many times, so fixing a typo
+///   in the chorus fixes every occurrence rather than the first of six.
+/// - A block that comes round more than once is called a chorus, which is what
+///   a repeated block nearly always is.
+///
+/// Explicitly labelled text is left alone — somebody who has written `[Verse
+/// 1]` has already said what they want, and guessing over the top of that
+/// would be rude.
+pub fn song_from_lyrics(raw: &str) -> LyricsDraft {
+    let text = raw.replace("\r\n", "\n");
+
+    if has_labels(&text) {
+        let sections = sections_from_text(&text);
+        let order = sections.iter().map(|section| section.id.clone()).collect();
+        return LyricsDraft { sections, order };
+    }
+
+    let mut sections: Vec<Section> = Vec::new();
+    let mut order: Vec<String> = Vec::new();
+    // Normalised text -> the id already carrying it.
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+
+    for (label, block) in blocks(&text) {
+        let kind = label.as_deref().map(kind_for).unwrap_or(SectionKind::Verse);
+        for piece in split_evenly(&block, LINES_PER_SLIDE) {
+            let body = piece.join("\n");
+            let key = repeat_key(&body);
+            if let Some(id) = seen.get(&key) {
+                // The same words again: another turn of one we already have.
+                order.push(id.clone());
+                continue;
+            }
+            let id = format!("s{}", sections.len() + 1);
+            seen.insert(key, id.clone());
+            order.push(id.clone());
+            sections.push(Section { id, kind, label: None, text: body });
+        }
+    }
+
+    // A block that comes round again is a chorus — but only where the words
+    // themselves had to say so. Text that came with its own headings has
+    // already been told what each part is, and "VERSE 2" repeated at the end
+    // of a song is still a verse.
+    let headed = has_headings(&text);
+    if !headed {
+        for section in &mut sections {
+            if order.iter().filter(|id| **id == section.id).count() > 1 {
+                section.kind = SectionKind::Chorus;
+            }
+        }
+    }
+
+    LyricsDraft { sections, order }
+}
+
+fn has_labels(text: &str) -> bool {
+    text.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2
+    })
+}
+
+/// The paragraphs of a dump, each with the heading that named it if it had
+/// one.
+///
+/// Two shapes have to be read here besides a plain column of lines:
+///
+/// - **Headings without brackets** — `VERSE 1`, `CHORUS`, `TAG` on a line of
+///   their own, which is how most lyric sites and worship books write them.
+///   They name the part rather than being sung, so they never reach a slide.
+/// - **Double spacing** — a blank line after *every* line, which some sites
+///   emit as styling. Read as paragraph breaks it would make one slide per
+///   line, so where nearly every line has one, single blanks are spacing and
+///   only a wider gap divides.
+fn blocks(text: &str) -> Vec<(Option<String>, Vec<String>)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let spaced = is_double_spaced(&lines);
+
+    let mut out: Vec<(Option<String>, Vec<String>)> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    // The heading carries on past a paragraph break: a chorus written in two
+    // halves is still a chorus in both.
+    let mut label: Option<String> = None;
+    let mut blanks = 0usize;
+
+    let mut flush = |current: &mut Vec<String>, label: &Option<String>| {
+        if !current.is_empty() {
+            out.push((label.clone(), std::mem::take(current)));
+        }
+    };
+
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            blanks += 1;
+            continue;
+        }
+        // A single blank between every line is spacing, not a division.
+        if blanks > 0 && !(spaced && blanks == 1) {
+            flush(&mut current, &label);
+        }
+        blanks = 0;
+
+        if let Some(heading) = bare_heading(trimmed) {
+            flush(&mut current, &label);
+            label = Some(heading);
+            continue;
+        }
+        current.push(trimmed.to_string());
+    }
+    flush(&mut current, &label);
+    out
+}
+
+/// Whether nearly every line is followed by a blank one.
+fn is_double_spaced(lines: &[&str]) -> bool {
+    let mut content = 0usize;
+    let mut single_gaps = 0usize;
+    let mut blanks_since = 0usize;
+    let mut started = false;
+
+    for line in lines {
+        if line.trim().is_empty() {
+            if started {
+                blanks_since += 1;
+            }
+            continue;
+        }
+        if started && blanks_since == 1 {
+            single_gaps += 1;
+        }
+        blanks_since = 0;
+        started = true;
+        content += 1;
+    }
+
+    // Four lines is the least that can show a pattern rather than a habit.
+    content >= 4 && single_gaps * 5 >= (content - 1) * 3
+}
+
+/// A line that names a part rather than being sung: `VERSE 2`, `Chorus`,
+/// `Приспів 1`, `TAG`.
+///
+/// Deliberately strict — the whole line must be the word, at most followed by
+/// a number — so a line of lyric that happens to open with one of these words
+/// is not swallowed as a heading.
+fn bare_heading(line: &str) -> Option<String> {
+    let trimmed = line.trim().trim_end_matches([':', '-', '–', '—']).trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 24 {
+        return None;
+    }
+    let mut words = trimmed.split_whitespace();
+    let head = words.next()?.to_lowercase();
+    let rest: Vec<&str> = words.collect();
+    if rest.len() > 1 {
+        return None;
+    }
+    // "Verse 2" and "Chorus" both name a part; "Verse of the Lord" does not.
+    if let Some(tail) = rest.first() {
+        if !tail.chars().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+    }
+
+    const HEADINGS: [&str; 20] = [
+        "verse", "chorus", "refrain", "bridge", "tag", "prechorus", "pre-chorus", "intro",
+        "outro", "ending", "interlude", "vamp", "coda", "куплет", "приспів", "брідж", "бридж",
+        "програш", "вступ", "закінчення",
+    ];
+    HEADINGS.contains(&head.as_str()).then(|| trimmed.to_string())
+}
+
+/// Whether the words came with headings of their own.
+fn has_headings(text: &str) -> bool {
+    text.lines().any(|line| bare_heading(line.trim()).is_some())
+}
+
+/// Cuts a block into pieces of at most `max` lines, as evenly as they will go.
+///
+/// Evenly, rather than filling each piece before starting the next: a block of
+/// six lines reads as three and three, not four and a widow.
+fn split_evenly(lines: &[String], max: usize) -> Vec<Vec<String>> {
+    if lines.len() <= max {
+        return vec![lines.to_vec()];
+    }
+    let pieces = lines.len().div_ceil(max);
+    let base = lines.len() / pieces;
+    let remainder = lines.len() % pieces;
+
+    let mut out = Vec::with_capacity(pieces);
+    let mut start = 0;
+    for index in 0..pieces {
+        // The first `remainder` pieces take the odd line each.
+        let take = base + usize::from(index < remainder);
+        out.push(lines[start..start + take].to_vec());
+        start += take;
+    }
+    out
+}
+
+/// What counts as "the same words again".
+///
+/// Case and spacing are ignored, and so are the asides a lyrics site puts in
+/// brackets — "(sing it again)" on the last time round should not stop a
+/// chorus being recognised as the chorus.
+fn repeat_key(body: &str) -> String {
+    let mut key = String::with_capacity(body.len());
+    let mut depth = 0usize;
+    let mut last_space = true;
+    for ch in body.chars() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.saturating_sub(1),
+            _ if depth > 0 => {}
+            c if c.is_whitespace() => {
+                if !last_space {
+                    key.push(' ');
+                    last_space = true;
+                }
+            }
+            c if c.is_alphanumeric() => {
+                key.extend(c.to_lowercase());
+                last_space = false;
+            }
+            // Punctuation is dropped: an apostrophe or a comma that differs
+            // between two turns of the same chorus is not a different chorus.
+            _ => {}
+        }
+    }
+    key.trim().to_string()
+}
+
+/// Sections parsed out of pasted text.
+///
+/// The same reader the `.txt` import uses, so a block copied out of a song and
+/// pasted back comes home as the section it was — but without the title rule.
+/// A file's first line before any block is its title; a clipboard's first line
+/// is the first line of the lyric, and eating it would be a quiet way to lose
+/// words.
+pub fn sections_from_text(raw: &str) -> Vec<Section> {
+    let text = raw.replace("\r\n", "\n");
+    let labelled = text.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with('[') && trimmed.ends_with(']') && trimmed.len() > 2
+    });
+
+    if labelled {
+        if let Ok(song) = from_text(&text, "") {
+            return song.sections;
+        }
+    }
+
+    let body = text.trim();
+    if body.is_empty() {
+        return Vec::new();
+    }
+    vec![Section {
+        id: "s1".into(),
+        kind: SectionKind::Verse,
+        label: None,
+        text: body.to_string(),
+    }]
 }
 
 fn from_text(raw: &str, fallback_title: &str) -> Result<Song> {
@@ -368,6 +655,168 @@ pub fn import(dir: &Path, book: &str, paths: &[PathBuf]) -> Result<ImportReport>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Headings written plainly, with a blank line after every line — how a
+    /// worship site or a chord sheet lays a song out. The headings name the
+    /// parts and are not sung, and a long chorus is still cut to fit a screen.
+    #[test]
+    fn plain_headings_and_double_spacing_are_understood() {
+        let raw = "VERSE 1\n\nline a\n\nline b\n\nline c\n\n\
+                   CHORUS 1\n\nsing one\n\nsing two\n\nsing three\n\nsing four\n\n\
+                   sing five\n\nsing six\n\nsing seven\n\nsing eight\n\n\
+                   TAG\n\nthe last line";
+        let draft = song_from_lyrics(raw);
+
+        // Nothing named a heading reaches a slide.
+        for section in &draft.sections {
+            for word in ["VERSE", "CHORUS", "TAG"] {
+                assert!(!section.text.contains(word), "heading leaked into {:?}", section.text);
+            }
+        }
+
+        let kinds: Vec<SectionKind> = draft
+            .order
+            .iter()
+            .map(|id| draft.sections.iter().find(|s| s.id == *id).unwrap().kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SectionKind::Verse,
+                SectionKind::Chorus,
+                SectionKind::Chorus,
+                SectionKind::Other,
+            ],
+            "the headings decide the kinds, and the eight-line chorus is two slides"
+        );
+
+        // The verse's three lines stayed together rather than becoming three
+        // slides of one line each.
+        let verse = draft.sections.iter().find(|s| s.kind == SectionKind::Verse).unwrap();
+        assert_eq!(verse.text.lines().count(), 3);
+    }
+
+    /// The same spacing, without any headings at all.
+    #[test]
+    fn double_spacing_alone_does_not_make_a_slide_per_line() {
+        let raw = (1..=8).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n\n");
+        let draft = song_from_lyrics(&raw);
+        assert_eq!(draft.order.len(), 2, "eight lines are two slides, not eight");
+    }
+
+    /// A heading is the whole line and nothing else. A line of lyric that
+    /// happens to open with one of those words is sung like any other.
+    #[test]
+    fn a_line_of_words_is_not_mistaken_for_a_heading() {
+        for line in ["Bridge over the river", "Verse of the day", "chorus of voices"] {
+            assert!(bare_heading(line).is_none(), "{line} should not be a heading");
+        }
+        for line in ["VERSE 2", "Chorus", "chorus:", "Приспів 1", "TAG"] {
+            assert!(bare_heading(line).is_some(), "{line} should be a heading");
+        }
+    }
+
+    /// With headings given, a part that comes round again keeps the name it
+    /// was given rather than being renamed a chorus by the repeat rule.
+    #[test]
+    fn a_repeated_part_keeps_the_name_its_heading_gave_it() {
+        let raw = "VERSE 1\nsame words here\n\nVERSE 2\nsame words here";
+        let draft = song_from_lyrics(raw);
+        assert_eq!(draft.order.len(), 2);
+        assert_eq!(draft.sections.len(), 1, "identical words are one section, sung twice");
+        assert_eq!(draft.sections[0].kind, SectionKind::Verse);
+    }
+
+    /// A column of lines with no blank lines and no headings — what a lyrics
+    /// site gives you — is cut into slides of at most four lines.
+    #[test]
+    fn a_wall_of_lyrics_is_cut_into_readable_slides() {
+        let raw = (1..=10).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n");
+        let draft = song_from_lyrics(&raw);
+        assert_eq!(draft.order.len(), 3, "ten lines make three slides");
+        for section in &draft.sections {
+            assert!(
+                section.text.lines().count() <= LINES_PER_SLIDE,
+                "no slide holds more than {LINES_PER_SLIDE} lines: {:?}",
+                section.text
+            );
+        }
+        // Evenly, not four-four-two.
+        let counts: Vec<usize> =
+            draft.sections.iter().map(|s| s.text.lines().count()).collect();
+        assert_eq!(counts, vec![4, 3, 3]);
+    }
+
+    /// The whole point: a chorus written out five times becomes one section
+    /// sung five times, so correcting it once corrects it everywhere.
+    #[test]
+    fn a_repeated_block_becomes_one_chorus_used_many_times() {
+        let verse = "aaa\nbbb";
+        let chorus = "ccc\nddd";
+        let raw = format!("{chorus}\n\n{verse}\n\n{chorus}\n\n{chorus}");
+        let draft = song_from_lyrics(&raw);
+
+        assert_eq!(draft.sections.len(), 2, "one chorus and one verse");
+        assert_eq!(draft.order.len(), 4, "sung four times between them");
+        let repeated = draft.sections.iter().find(|s| s.text == chorus).unwrap();
+        assert_eq!(repeated.kind, SectionKind::Chorus);
+        assert_eq!(draft.order.iter().filter(|id| **id == repeated.id).count(), 3);
+        let once = draft.sections.iter().find(|s| s.text == verse).unwrap();
+        assert_eq!(once.kind, SectionKind::Verse, "sung once, so not a chorus");
+    }
+
+    /// The last time round a lyrics site writes "(sing it again)" after the
+    /// line. It is the same chorus.
+    #[test]
+    fn an_aside_in_brackets_does_not_hide_a_repeat() {
+        let raw = "hold me now\nand steady me\n\nhold me now (sing it)\nand steady me";
+        let draft = song_from_lyrics(raw);
+        assert_eq!(draft.sections.len(), 1);
+        assert_eq!(draft.order.len(), 2);
+        // The words are kept exactly as they came, aside and all.
+        assert!(draft.sections[0].text.contains("hold me now"));
+    }
+
+    /// Somebody who has written the headings themselves has already said what
+    /// they want; nothing is guessed over the top of it.
+    #[test]
+    fn labelled_text_is_left_as_written() {
+        let draft = song_from_lyrics("[Chorus]\none\ntwo\nthree\nfour\nfive\nsix");
+        assert_eq!(draft.sections.len(), 1, "not cut up");
+        assert_eq!(draft.sections[0].kind, SectionKind::Chorus);
+        assert_eq!(draft.sections[0].text.lines().count(), 6);
+    }
+
+    #[test]
+    fn pasting_an_empty_page_makes_an_empty_song() {
+        let draft = song_from_lyrics("\n   \n\n");
+        assert!(draft.sections.is_empty());
+        assert!(draft.order.is_empty());
+    }
+
+    #[test]
+    fn pasted_blocks_come_back_as_the_sections_they_were() {
+        let sections = sections_from_text("[Chorus]\nholy, holy\n\n[Verse 2]\nline one\nline two\n");
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].kind, SectionKind::Chorus);
+        assert_eq!(sections[0].text, "holy, holy");
+        assert_eq!(sections[1].kind, SectionKind::Verse);
+        assert_eq!(sections[1].text, "line one\nline two");
+    }
+
+    /// Lyrics copied from anywhere else: one verse, with every line kept. The
+    /// file reader would have taken the first line for a title.
+    #[test]
+    fn pasted_plain_text_keeps_its_first_line() {
+        let sections = sections_from_text("Amazing grace\nhow sweet the sound");
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].text, "Amazing grace\nhow sweet the sound");
+    }
+
+    #[test]
+    fn pasting_nothing_adds_nothing() {
+        assert!(sections_from_text("   \n\n ").is_empty());
+    }
 
     fn song() -> Song {
         Song {

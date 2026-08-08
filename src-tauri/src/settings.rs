@@ -10,6 +10,11 @@ use crate::paths;
 
 pub const SETTINGS_VERSION: u32 = 19;
 
+/// The range the console's own text may be scaled over. Below the first the
+/// controls stop being clickable; above the last the tabs no longer fit.
+pub const MIN_UI_SCALE: f64 = 1.0;
+pub const MAX_UI_SCALE: f64 = 1.6;
+
 pub const PRESET_STANDARD: &str = "standard";
 pub const PRESET_STREAM: &str = "stream";
 pub const PRESET_CONFIDENCE: &str = "confidence";
@@ -30,6 +35,13 @@ pub struct Settings {
     pub secondary_translations: Vec<String>,
     /// Blank the output when the operator switches songs, so nothing leaks.
     pub blank_on_switch: bool,
+    /// How large the console's own text and controls are drawn, 1.0 being the
+    /// designed size.
+    ///
+    /// The console only. What a congregation reads is set per screen in the
+    /// presets, and a projector must not follow the eyesight of whoever is
+    /// running the desk.
+    pub ui_scale: f64,
     /// Parts of the window the operator can put away. All default to shown.
     pub show_status_bar: bool,
     pub show_filmstrip: bool,
@@ -91,6 +103,7 @@ impl Default for Settings {
             active_translation: None,
             secondary_translations: Vec::new(),
             blank_on_switch: false,
+            ui_scale: 1.0,
             show_status_bar: true,
             show_filmstrip: true,
             show_side_panel: true,
@@ -761,6 +774,13 @@ pub fn repair(settings: &mut Settings) {
         fill_fixed(&mut preset.timer, &TIMER_ELEMENTS, &Layout::timer_default());
     }
 
+    // A scale from a hand-edited file — or a newer build — must still leave a
+    // console somebody can read well enough to change it back.
+    if !settings.ui_scale.is_finite() {
+        settings.ui_scale = 1.0;
+    }
+    settings.ui_scale = settings.ui_scale.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
+
     // A web screen with no entry in `displays` could never be switched on or
     // given a preset, so make sure every one has a place to hold that.
     settings.web_screens.retain(|screen| !screen.id.trim().is_empty());
@@ -1063,6 +1083,23 @@ mod tests {
             .find(|element| element.id == ElementId::NextUp)
             .unwrap();
         assert!(!next.visible);
+    }
+
+    /// A console nobody can read is a console nobody can put right again, so
+    /// whatever a settings file says, the scale lands inside the range the
+    /// picker offers.
+    #[test]
+    fn repair_clamps_the_console_text_size() {
+        for (given, wanted) in [
+            (0.1, MIN_UI_SCALE),
+            (12.0, MAX_UI_SCALE),
+            (f64::NAN, 1.0),
+            (1.3, 1.3),
+        ] {
+            let mut settings = Settings { ui_scale: given, ..Settings::default() };
+            repair(&mut settings);
+            assert_eq!(settings.ui_scale, wanted, "ui_scale {given}");
+        }
     }
 
     #[test]

@@ -218,7 +218,10 @@ function ElementBox({
         border,
         borderRadius: 3,
         cursor: dragging ? "grabbing" : "grab",
-        background: selected ? "rgba(240,168,58,0.08)" : "transparent",
+        // The tint under a selected box, pairing with the --accent border
+        // above. Kept in step with --accent-soft by hand — an inline style
+        // cannot read a token's own alpha variant.
+        background: selected ? "rgba(34,211,238,0.08)" : "transparent",
         touchAction: "none",
       }}
     >

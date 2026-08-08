@@ -87,7 +87,9 @@ export function Stage({
           style={{
             fontSize: height * 0.12,
             fontWeight: 800,
-            color: "#f0a83a",
+            // --accent, written out: the stage renders in its own window and
+            // deliberately does not inherit the console's tokens.
+            color: "#22d3ee",
             letterSpacing: "-0.02em",
             textAlign: "center",
             whiteSpace: "pre-line",

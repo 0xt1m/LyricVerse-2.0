@@ -17,6 +17,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:webview:allow-internal-toggle-devtools",
+    "core:webview:allow-set-webview-zoom",
     "dialog:allow-open",
     "dialog:allow-save",
     "updater:default",

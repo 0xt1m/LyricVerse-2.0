@@ -2,6 +2,14 @@
 
 export type SectionKind = "verse" | "chorus" | "bridge" | "other";
 
+/** A song built out of pasted lyrics: the sections, and the order they are
+ *  sung in — where a chorus appears once in `sections` and as often as it is
+ *  sung in `order`. */
+export interface LyricsDraft {
+  sections: Section[];
+  order: string[];
+}
+
 export interface Section {
   id: string;
   kind: SectionKind;
@@ -359,6 +367,9 @@ export interface Settings {
   /** Shown beneath the main translation, in this order. */
   secondaryTranslations: string[];
   blankOnSwitch: boolean;
+  /** How large the console's own text and controls are drawn; 1 is the
+   *  designed size. The projection screens are never scaled by it. */
+  uiScale: number;
   /** Parts of the window the operator can put away. */
   showStatusBar: boolean;
   showFilmstrip: boolean;

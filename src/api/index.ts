@@ -14,6 +14,8 @@ import type {
   ResolvedReference,
   SearchHit,
   Settings,
+  LyricsDraft,
+  Section,
   Song,
   SongSummary,
   SongbookMeta,
@@ -138,6 +140,8 @@ export const api = {
   saveSong: (songbook: string, song: Song) => invoke<number>("save_song", { songbook, song }),
   deleteSong: (songbook: string, id: number) => invoke<void>("delete_song", { songbook, id }),
   createSongbook: (name: string) => invoke<SongbookMeta>("create_songbook", { name }),
+  parseSections: (text: string) => invoke<Section[]>("parse_sections", { text }),
+  parseLyrics: (text: string) => invoke<LyricsDraft>("parse_lyrics", { text }),
   importSongbook: (path: string, name?: string) =>
     invoke<SongbookMeta>("import_songbook", { path, name: name ?? null }),
   renameSongbook: (from: string, to: string) => invoke<void>("rename_songbook", { from, to }),

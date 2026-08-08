@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
-import type { Section, SectionKind, Song, SongFormat, SongSummary } from "../api/types";
+import type {
+  LyricsDraft,
+  Section,
+  SectionKind,
+  Song,
+  SongFormat,
+  SongSummary,
+} from "../api/types";
 import { useStore } from "../app/store";
 import { songDeck } from "../lib/deck";
 import { useGridReorder } from "../lib/dragReorder";
@@ -14,6 +21,7 @@ import { Empty, SearchInput, useScrollIntoView } from "./ui/controls";
 import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
 import { useDialogs } from "./ui/Dialogs";
 import { SongbookManager } from "./SongbookManager";
+import { PasteLyricsDialog } from "./PasteLyricsDialog";
 
 /** Long enough that typing does not thrash the disk, short enough to be safe. */
 const SAVE_DELAY_MS = 600;
@@ -70,7 +78,20 @@ export function SongsTab() {
   const [song, setSong] = useState<Song | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [managing, setManaging] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  /**
+   * Which half of the tab Delete belongs to.
+   *
+   * The list and the editor both hold a selection, and Delete means something
+   * different in each — a song, or a section of one. Whichever was last
+   * pressed is the one being worked in, which is the same rule a file manager
+   * uses for a sidebar and a folder view.
+   */
+  const [pane, setPane] = useState<"list" | "grid">("list");
   const searchRef = useRef<HTMLInputElement>(null);
+  /** The last copy made here, so pasting works even where the platform
+   *  refuses to let a page read the clipboard. */
+  const copied = useRef<string | null>(null);
   const dialogs = useDialogs();
 
   const songbook =
@@ -257,18 +278,39 @@ export function SongsTab() {
     return [...liked, ...rest];
   }, [filtered, favourites, settings.favouritesFirst]);
 
+  /** Whether this book has been dragged into an order of its own. */
+  const rearranged = !!(songbook && settings.songOrder[songbook]?.length);
+
   /**
-   * Dragging is only offered while the list on screen *is* the book's own
-   * order — no search, no favourites lifted to the top.
+   * Back to the order the songbook itself keeps — by number.
    *
-   * The identity check is the whole rule: both memos above hand back the array
-   * they were given when they have nothing to do, so this is true exactly when
-   * nothing has been filtered or regrouped. Dropping a song into a filtered
-   * list would mean guessing where it belongs among the songs not on screen,
-   * and dropping one into a favourites-first list would write an order that
-   * the favourites sort immediately overrules.
+   * The dragged order is only ever stored here, never written into the
+   * songbook file, so forgetting it is all it takes: nothing about the songs
+   * themselves changes, and the numbers were never lost in the first place.
    */
-  const canReorder = ordered === arranged && ordered.length > 1;
+  const resetOrder = () => {
+    if (!songbook) return;
+    const remaining = { ...settings.songOrder };
+    delete remaining[songbook];
+    void patchSettings({ songOrder: remaining });
+    toast(t("songs.orderReset"), "success");
+  };
+
+  /**
+   * Dragging is offered on any unfiltered list.
+   *
+   * It used to require the list on screen to be exactly the book's own order,
+   * which quietly took the handle away whenever favourites were lifted to the
+   * top — a feature that vanishes without a word is one that is broken as far
+   * as anybody using it is concerned. The drop is applied to the book's order
+   * as a single move (see below), so the grouping on screen makes no
+   * difference to what is written.
+   *
+   * A search is still the exception, and for a reason that cannot be worked
+   * around: most of the book is not on screen, so there is no answer to where
+   * between two hidden songs the dropped one belongs.
+   */
+  const canReorder = !query.trim() && ordered.length > 1;
 
   /** Held while the drag runs, so the rows follow the cursor without waiting
    *  for a round trip to the settings file for every row crossed. */
@@ -347,10 +389,26 @@ export function SongsTab() {
     // travelled — and put the song down before it had been picked up.
     if (!wasDragging.current) return;
     wasDragging.current = false;
+    const movedId = carriedId.current;
     carriedId.current = null;
     setCarried(null);
-    if (!dragOrder || !songbook) return;
-    const ids = dragOrder.map((item) => item.id);
+    if (!dragOrder || !songbook || movedId === null) return;
+
+    /*
+     * One move applied to the book's own order — not the list as displayed.
+     *
+     * With favourites lifted to the top, what is on screen is a *grouping* of
+     * the book's order, and adopting it wholesale would write that grouping
+     * into the songbook: turn favourites-first off again and the favourites
+     * would still be at the top, with no way to tell why. So the drop is read
+     * as "this song now follows that one", and only that one song moves.
+     */
+    const displayed = dragOrder.map((item) => item.id);
+    const landedAfter = displayed[displayed.indexOf(movedId) - 1] ?? null;
+    const without = arranged.map((item) => item.id).filter((id) => id !== movedId);
+    const at = landedAfter === null ? 0 : without.indexOf(landedAfter) + 1;
+    const ids = [...without.slice(0, at), movedId, ...without.slice(at)];
+
     void patchSettings({ songOrder: { ...settings.songOrder, [songbook]: ids } }).then(() =>
       // Cleared only once the stored order is back, or the list would flick
       // to its old arrangement for a frame.
@@ -359,7 +417,7 @@ export function SongsTab() {
     // `settings.songOrder` is read, not depended on: it changes as a result of
     // this write, and re-running would queue the same save again.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dragging, dragOrder, songbook, patchSettings]);
+  }, [dragging, dragOrder, songbook, arranged, patchSettings]);
 
   /**
    * Picking several songs at once, for deleting or exporting them together.
@@ -453,6 +511,91 @@ export function SongsTab() {
     });
   };
 
+  /**
+   * A section on its own, with a new id.
+   *
+   * Different from a repeat, which is the *same* section standing in the
+   * order twice — edit one occurrence of a repeat and every other changes
+   * with it, which is right for a chorus and wrong for "the second verse is
+   * nearly the first". This one can be edited on its own.
+   */
+  const duplicateSection = (index: number) => {
+    if (!song) return;
+    const id = song.order[index];
+    const source = song.sections.find((section) => section.id === id);
+    if (!source) return;
+    const copy: Section = { ...source, id: freshSectionId(song, source.kind) };
+    const order = [...song.order];
+    order.splice(index + 1, 0, copy.id);
+    edit({ ...song, sections: [...song.sections, copy], order });
+  };
+
+  /**
+   * The picked sections as text, in the format the app exports and imports —
+   * so a chorus can be pasted into another song here, or into an email, and
+   * read back either way.
+   */
+  const copySections = useCallback(
+    (indices: number[]) => {
+      if (!song || indices.length === 0) return;
+      const text = indices
+        .map((index) => {
+          const id = song.order[index];
+          const section = song.sections.find((item) => item.id === id);
+          if (!section) return "";
+          return `[${exportLabel(song, section)}]\n${section.text.trim()}`;
+        })
+        .filter(Boolean)
+        .join("\n\n");
+      if (!text) return;
+      copied.current = text;
+      void navigator.clipboard.writeText(text).catch(() => {
+        // Denied by the platform. The in-app copy above still works, so
+        // pasting back into this window is unaffected.
+      });
+      toast(t("editor.copied", { n: indices.length }), "success");
+    },
+    [song, toast, t],
+  );
+
+  /**
+   * Whatever is on the clipboard, as sections after the cursor.
+   *
+   * The system clipboard wins when it can be read and holds something other
+   * than our own last copy — otherwise a verse copied from a browser would
+   * lose to a stale in-app copy. When reading is refused, the in-app copy is
+   * what there is.
+   */
+  const pasteSections = useCallback(async () => {
+    if (!song) return;
+    let text = copied.current;
+    try {
+      const system = await navigator.clipboard.readText();
+      if (system.trim()) text = system;
+    } catch {
+      // Some platforms refuse to read without a prompt; fall back quietly.
+    }
+    if (!text?.trim()) return;
+
+    try {
+      const parsed = await api.parseSections(text);
+      if (parsed.length === 0) return;
+      // Fresh ids: the pasted sections are their own, even when they came
+      // from this very song a moment ago.
+      const fresh = parsed.map((section, offset) => ({
+        ...section,
+        id: freshSectionId(song, section.kind, offset),
+      }));
+      const at = Math.min(cursor + 1, song.order.length);
+      const order = [...song.order];
+      order.splice(at, 0, ...fresh.map((section) => section.id));
+      edit({ ...song, sections: [...song.sections, ...fresh], order });
+      toast(t("editor.pasted", { n: fresh.length }), "success");
+    } catch (error) {
+      reportError(error);
+    }
+  }, [song, cursor, edit, toast, t, reportError]);
+
   const repeatSection = (index: number) => {
     if (!song) return;
     const id = song.order[index];
@@ -532,6 +675,26 @@ export function SongsTab() {
     } catch (error) {
       reportError(error);
     }
+  };
+
+  /**
+   * A whole song out of pasted words, saved and opened for tidying.
+   *
+   * The splitter's guesses are a starting point, not a verdict: what lands
+   * here is an ordinary song whose sections can be retyped, re-kinded, split
+   * or merged like any other.
+   */
+  const createFromLyrics = async (title: string, draft: LyricsDraft) => {
+    if (!songbook) return;
+    const id = await api.saveSong(songbook, {
+      id: 0,
+      title,
+      sections: draft.sections,
+      order: draft.order,
+    });
+    setPasting(false);
+    setSelectedId(id);
+    toast(t("songs.pasted", { n: draft.order.length }), "success");
   };
 
   const newSong = async () => {
@@ -768,6 +931,29 @@ export function SongsTab() {
   const songDeckActive = deck?.source === "song";
   const selection = useTileSelection(songDeckActive ? deck.slides.length : 0, song?.id);
 
+  /**
+   * ⌘/Ctrl+C and ⌘/Ctrl+V over the sections.
+   *
+   * Its own effect rather than part of the shortcut handler above, because it
+   * reads the grid's selection, which is declared here. Neither key is taken
+   * while something is being typed into: inside the tile editor or the search
+   * box they belong to the caret.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!song || !(event.metaKey || event.ctrlKey) || isTyping(event.target)) return;
+      if (event.code === "KeyC") {
+        event.preventDefault();
+        copySections(selection.isMulti ? selection.ordered() : [cursor]);
+      } else if (event.code === "KeyV") {
+        event.preventDefault();
+        void pasteSections();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [song, selection, cursor, copySections, pasteSections]);
+
   // Delete removes the whole selection, or the highlighted section when there
   // is none. Declared here because it needs both the selection and the
   // remover, which are set up above.
@@ -775,6 +961,7 @@ export function SongsTab() {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (isTyping(event.target) || !song || !songDeckActive) return;
+      if (pane !== "grid") return;
 
       const indices = selection.selected.size > 0 ? selection.ordered() : [cursor];
       if (indices.length === 0) return;
@@ -798,12 +985,37 @@ export function SongsTab() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [song, songDeckActive, cursor, selection, dialogs, removeSections, t]);
+  }, [song, songDeckActive, cursor, selection, dialogs, removeSections, t, pane]);
+
+  /**
+   * Delete over the song list removes the songs picked there.
+   *
+   * `deleteSongs` asks first — one song by name, several by count — so this is
+   * the shortcut for the menu item, not a quicker way to lose a songbook.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
+      if (isTyping(event.target) || pane !== "list" || !songbook) return;
+
+      const targets = picked.isMulti
+        ? picked.ordered().map((index) => ordered[index]).filter((x): x is SongSummary => !!x)
+        : ordered.filter((item) => item.id === selectedId);
+      if (targets.length === 0) return;
+      event.preventDefault();
+      void deleteSongs(targets);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // `deleteSongs` is rebuilt every render and would tear the listener down
+    // each time; everything it reads is in the dependencies that matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane, songbook, picked, ordered, selectedId]);
 
   return (
     <>
       <div className="workspace">
-        <section className="panel" style={{ flex: "0 0 300px" }}>
+        <section className="panel" style={{ flex: "0 1 300px", minWidth: 210 }}>
           <div className="panel__head">
             <SearchInput
               value={query}
@@ -833,9 +1045,60 @@ export function SongsTab() {
             {favourites.size > 0 && (
               <span className="field__hint">{favourites.size}</span>
             )}
+            {/* Only once there is something to undo — a button that does
+                nothing is worse than no button. */}
+            {rearranged && (
+              <button
+                className="btn btn--sm"
+                title={t("songs.orderResetHint")}
+                onClick={resetOrder}
+              >
+                <Icon name="refresh" size={12} />
+                {t("songs.orderReset")}
+              </button>
+            )}
           </div>
 
-          <div className="panel__body">
+          <div
+            className="panel__body"
+            onPointerDownCapture={() => setPane("list")}
+            onContextMenu={(event) =>
+              openMenu(event, [
+                {
+                  label: t("songs.new"),
+                  icon: "plus",
+                  disabled: !songbook,
+                  onSelect: () => void newSong(),
+                },
+                {
+                  label: t("songs.pasteLyrics"),
+                  icon: "copy",
+                  disabled: !songbook,
+                  onSelect: () => setPasting(true),
+                },
+                {
+                  label: t("songs.import"),
+                  icon: "folder",
+                  disabled: !songbook,
+                  onSelect: () => void importSongs(),
+                },
+                "separator",
+                {
+                  label: t("songs.orderReset"),
+                  icon: "refresh",
+                  disabled: !rearranged,
+                  onSelect: resetOrder,
+                },
+                "separator",
+                { label: t("songbook.new"), icon: "plus", onSelect: () => void newSongbook() },
+                {
+                  label: t("songbook.manage"),
+                  icon: "folder",
+                  onSelect: () => setManaging(true),
+                },
+              ])
+            }
+          >
             {/* With no songbook there is nowhere to put a song, and the New
                 song button is dead: say so here rather than leave an empty
                 list that looks like a book with nothing in it. */}
@@ -916,6 +1179,11 @@ export function SongsTab() {
               onClick={(event) =>
                 openMenu(event, [
                   { label: t("songs.import"), icon: "plus", onSelect: () => void importSongs() },
+                  {
+                    label: t("songs.pasteLyrics"),
+                    icon: "copy",
+                    onSelect: () => setPasting(true),
+                  },
                   "separator",
                   // What is picked takes precedence over the whole book: if the
                   // operator has gone to the trouble of selecting, that is what
@@ -994,7 +1262,7 @@ export function SongsTab() {
             </button>
           </div>
 
-          <div className="panel__body">
+          <div className="panel__body" onPointerDownCapture={() => setPane("grid")}>
             {!song || !songDeckActive ? (
               <Empty title={t("songs.pick")} hint={t("songs.pickHint")} />
             ) : (
@@ -1015,6 +1283,9 @@ export function SongsTab() {
                 onKind={setSectionKind}
                 onMove={moveSection}
                 onRepeat={repeatSection}
+                onDuplicate={duplicateSection}
+                onCopy={copySections}
+                onPaste={() => void pasteSections()}
                 onRemove={removeSections}
                 onAdd={addSection}
               />
@@ -1029,6 +1300,9 @@ export function SongsTab() {
       </div>
 
       {managing && <SongbookManager onClose={() => setManaging(false)} />}
+      {pasting && (
+        <PasteLyricsDialog onClose={() => setPasting(false)} onCreate={createFromLyrics} />
+      )}
     </>
   );
 }
@@ -1054,6 +1328,9 @@ function SectionGrid({
   onKind,
   onMove,
   onRepeat,
+  onDuplicate,
+  onCopy,
+  onPaste,
   onRemove,
   onAdd,
 }: {
@@ -1068,6 +1345,10 @@ function SectionGrid({
   onKind: (index: number, kind: SectionKind) => void;
   onMove: (from: number, to: number) => void;
   onRepeat: (index: number) => void;
+  /** A copy of its own, editable apart from the original. */
+  onDuplicate: (index: number) => void;
+  onCopy: (indices: number[]) => void;
+  onPaste: () => void;
   onRemove: (indices: number[]) => void;
   onAdd: (kind: SectionKind) => void;
 }) {
@@ -1117,6 +1398,22 @@ function SectionGrid({
                 { label: t("menu.show"), icon: "eye", onSelect: () => onShow(index) },
                 { label: t("menu.editText"), icon: "pencil", onSelect: () => onEdit(index) },
                 { label: t("editor.repeat"), icon: "repeat", onSelect: () => onRepeat(index) },
+                {
+                  label: t("editor.duplicate"),
+                  icon: "copy",
+                  onSelect: () => onDuplicate(index),
+                },
+                "separator",
+                {
+                  label:
+                    inSelection && selection.isMulti
+                      ? t("editor.copySelected", { n: selection.selected.size })
+                      : t("common.copy"),
+                  icon: "copy",
+                  onSelect: () =>
+                    onCopy(inSelection && selection.isMulti ? selection.ordered() : [index]),
+                },
+                { label: t("editor.paste"), icon: "plus", onSelect: onPaste },
                 "separator",
                 ...KINDS.filter(({ kind }) => kind !== slide.kind).map(({ kind, key }) => ({
                   label: t("menu.makeKind", { kind: t(key) }),
@@ -1276,6 +1573,30 @@ function SongRow({
       </button>
     </div>
   );
+}
+
+/**
+ * An id no section in this song is using.
+ *
+ * The clock is in it because two copies made in the same session must not
+ * collide, and the offset because a paste can bring several at once.
+ */
+function freshSectionId(song: Song, kind: string, offset = 0): string {
+  let id = `${kind[0] ?? "s"}${Date.now().toString(36)}${song.sections.length + offset}`;
+  while (song.sections.some((section) => section.id === id)) id += "x";
+  return id;
+}
+
+/** What a section is called in exported and copied text: the label somebody
+ *  gave it, or the canonical English one the reader knows. */
+function exportLabel(song: Song, section: Section): string {
+  const trimmed = section.label?.trim();
+  if (trimmed) return trimmed;
+  if (section.kind === "verse") {
+    const verses = song.sections.filter((item) => item.kind === "verse");
+    return `Verse ${verses.indexOf(section) + 1}`;
+  }
+  return section.kind === "chorus" ? "Chorus" : section.kind === "bridge" ? "Bridge" : "Other";
 }
 
 function isTyping(target: EventTarget | null): boolean {

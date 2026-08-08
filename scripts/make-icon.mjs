@@ -42,8 +42,10 @@ const hex = (value) => [(value >> 16) & 255, (value >> 8) & 255, value & 255];
 
 // --- Scene -----------------------------------------------------------------
 
-const GRADIENT_FROM = hex(0xf7bb45);
-const GRADIENT_TO = hex(0xd45c17);
+// Indigo into violet. The white screen-and-note ink carries the contrast, so
+// both ends stay dark enough to keep it legible at 32px.
+const GRADIENT_FROM = hex(0x0ea5e9);
+const GRADIENT_TO = hex(0x1d4ed8);
 const INK = [255, 255, 255];
 
 function sample(x, y) {

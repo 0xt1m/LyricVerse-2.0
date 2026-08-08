@@ -462,6 +462,21 @@ fn delete_song(app: AppHandle, songbook: String, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// Sections out of pasted text, read by the same parser the `.txt` import
+/// uses — so what a section becomes on the way back in is decided in one
+/// place, not two.
+/// A whole song out of lyrics pasted from a website: cut into slides, with
+/// the repeats folded into one section each.
+#[tauri::command]
+fn parse_lyrics(text: String) -> Result<songio::LyricsDraft> {
+    Ok(songio::song_from_lyrics(&text))
+}
+
+#[tauri::command]
+fn parse_sections(text: String) -> Result<Vec<songs::Section>> {
+    Ok(songio::sections_from_text(&text))
+}
+
 #[tauri::command]
 fn create_songbook(app: AppHandle, name: String) -> Result<SongbookMeta> {
     let meta = songs::create(&paths::songbooks_dir(&app)?, &name)?;
@@ -1133,6 +1148,8 @@ pub fn run() {
             save_song,
             delete_song,
             create_songbook,
+            parse_sections,
+            parse_lyrics,
             import_songbook,
             rename_songbook,
             delete_songbook,

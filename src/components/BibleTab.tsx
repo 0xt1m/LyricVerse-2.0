@@ -386,7 +386,7 @@ export function BibleTab() {
 
   return (
     <div className="workspace">
-      <section className="panel" style={{ flex: "0 0 262px" }}>
+      <section className="panel" style={{ flex: "0 1 262px", minWidth: 178 }}>
         <div className="panel__head">
           <SearchInput value={bookFilter} onChange={setBookFilter} placeholder={t("bible.books")} />
         </div>

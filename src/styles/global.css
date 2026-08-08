@@ -2,7 +2,7 @@
    LyricVerse design tokens
 
    A stage-console palette: near-black neutrals so the operator's screen never
-   washes out a darkened room, with a single warm accent for anything that is
+   washes out a darkened room, with a single cyan accent for anything that is
    about to go live.
 --------------------------------------------------------------------------- */
 
@@ -18,10 +18,18 @@
   --text-muted: #909aab;
   --text-faint: #626d7e;
 
-  --accent: #f0a83a;
-  --accent-soft: rgba(240, 168, 58, 0.14);
-  --accent-line: rgba(240, 168, 58, 0.4);
-  --accent-ink: #12151a;
+  /* Cyan rather than the logo's own sky blue: the "verse" chip is already
+     blue (--verse), and two blues on one tile — one saying "this is selected",
+     the other "this is a verse" — would be a distinction nobody should have to
+     make at a glance. Moving this one token is less disruption than
+     re-balancing the four categorical colours below. It reads 10.8:1 both as
+     text on --bg and as a button fill under --accent-ink. --chorus keeps the
+     old amber for the same reason: those four are about what a slide *is*,
+     not about what is live. */
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.14);
+  --accent-line: rgba(34, 211, 238, 0.4);
+  --accent-ink: #0a0c0f;
 
   --live: #e5484d;
   --live-soft: rgba(229, 72, 77, 0.14);
@@ -166,7 +174,7 @@ button {
 /* The panel is only on the content tabs, so its track is only there when it is
    — the setup tabs get the full window back. */
 .app__body[data-side="right"] {
-  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--side-w);
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) minmax(0, var(--side-w));
 }
 
 /* Docked to the bottom the rail still runs the full height — it is the app's
@@ -207,7 +215,10 @@ button {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: linear-gradient(140deg, #f7bb45, #d45c17);
+  /* The same two colours the app icon is drawn from — see
+     scripts/make-icon.mjs. Change them together or the mark in the title bar
+     stops matching the icon in the dock. */
+  background: linear-gradient(140deg, #0ea5e9, #1d4ed8);
   display: grid;
   place-items: center;
   flex: none;
@@ -232,6 +243,23 @@ button {
   flex-direction: column;
   padding: 10px 0;
   gap: 2px;
+  /* Nine tabs do not always fit: a short window, or the console drawn larger
+     for somebody who cannot read it at its designed size, and Settings — the
+     one tab you need to put either of those right — was the one off the
+     bottom. `min-height: 0` is what lets a grid item scroll at all; without
+     it the rail simply grows and is clipped by the shell. */
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* The gap that pushes the setup tabs to the foot gives way first: with too
+   many tabs for the height, the space between them is what there is to lose,
+   not the tabs themselves. */
+.rail__spacer {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .rail__item {
@@ -273,17 +301,19 @@ button {
   background: var(--accent-soft);
 }
 
-.rail__spacer {
-  flex: 1;
-}
-
 /* --- Panels -------------------------------------------------------------- */
 
 .workspace {
   min-height: 0;
   min-width: 0;
   display: flex;
-  overflow: hidden;
+  /* Drawn at 160% the window holds far fewer CSS pixels, and three panels
+     side by side stop fitting. They give way as far as their own minimums
+     first (see each tab), and past that the tab scrolls sideways rather than
+     putting a panel somewhere unreachable. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
 }
 
 .panel {
@@ -473,6 +503,56 @@ button {
 /* Never squeezed to make room for the words beside it. */
 .library-row__action {
   flex: none;
+}
+
+/* The preview under a paste: one card per slide, in the order they are sung.
+   A grid rather than a column of full-width rows — thirty-five of those turn a
+   dialog into a scroll nobody reads — and it scrolls inside its own box so the
+   words being pasted stay where they were put. */
+.paste-preview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.paste-card {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+}
+
+.paste-card__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The place in the running order, so a chorus coming round for the third time
+   is visibly the third time. */
+.paste-card__index {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two lines of the words, cut off cleanly — enough to recognise the part
+   without reading the song back. */
+.paste-card__body {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .empty {

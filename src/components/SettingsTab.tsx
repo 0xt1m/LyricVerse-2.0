@@ -9,6 +9,15 @@ import { canRouteAudio } from "./AudioEngine";
 import { SongbookManager } from "./SongbookManager";
 import { TranslationManager } from "./TranslationManager";
 
+/** How large the console draws itself. The last is `MAX_UI_SCALE` in the Rust
+ *  settings, which clamps anything a file hands over. */
+const TEXT_SIZES: [number, string][] = [
+  [1, "settings.textNormal"],
+  [1.15, "settings.textLarge"],
+  [1.3, "settings.textLarger"],
+  [1.6, "settings.textLargest"],
+];
+
 const SHORTCUTS: [string, string[]][] = [
   ["shortcut.next", ["→", "PgDn"]],
   ["shortcut.prev", ["←", "PgUp"]],
@@ -144,6 +153,27 @@ export function SettingsTab() {
                     {LANGUAGES.map((code) => (
                       <option key={code} value={code}>
                         {LANGUAGE_NAMES[code]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                {/* Steps rather than a slider: somebody who cannot read the
+                    console is not well served by dragging a handle to find a
+                    size, and four named sizes can be reached with one press.
+                    The console only — what the room reads is set per screen
+                    in the presets. */}
+                <Field label={t("settings.textSize")} hint={t("settings.textSizeHint")}>
+                  <select
+                    className="select"
+                    value={String(settings.uiScale)}
+                    onChange={(event) =>
+                      void patchSettings({ uiScale: Number(event.target.value) })
+                    }
+                  >
+                    {TEXT_SIZES.map(([scale, key]) => (
+                      <option key={scale} value={scale}>
+                        {t(key)} · {Math.round(scale * 100)}%
                       </option>
                     ))}
                   </select>

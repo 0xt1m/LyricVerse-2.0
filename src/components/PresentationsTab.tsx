@@ -392,7 +392,27 @@ export function PresentationsTab() {
             {t("presentation.blank")}
           </button>
         </div>
-        <div className="panel__body">
+        {/* Right-clicking the list itself, rather than a deck in it. The row
+            menus stop the event, so this only fires on empty space — where
+            "make a new one" is the only thing anybody can mean. */}
+        <div
+          className="panel__body"
+          onContextMenu={(event) =>
+            openMenu(event, [
+              { label: t("presentation.blank"), icon: "plus", onSelect: () => void create() },
+              {
+                label: t("presentation.importPdf"),
+                icon: "folder",
+                onSelect: () => void importPdfAsDeck(),
+              },
+              {
+                label: t("presentation.addMessage"),
+                icon: "pencil",
+                onSelect: () => void addMessage(),
+              },
+            ])
+          }
+        >
           {decks.length === 0 ? (
             <Empty
               title={t("presentation.none")}

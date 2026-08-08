@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useStore, flushSettings, type Tab } from "./store";
 import { fetchUpdate, installPendingUpdate, updateIsWaiting } from "../lib/updates";
 import { BibleTab } from "../components/BibleTab";
@@ -14,7 +15,7 @@ import { AudioTab } from "../components/AudioTab";
 import { AudioEngine } from "../components/AudioEngine";
 import { SidePanel } from "../components/SidePanel";
 import { screenName } from "../lib/screens";
-import { mediaSrc } from "../api/net";
+import { IS_TAURI, mediaSrc } from "../api/net";
 import { formatTime, percent, playbackPosition, useScrub } from "../lib/playback";
 import { Icon, type IconName } from "../components/ui/Icon";
 import { useContextMenu } from "../components/ui/ContextMenu";
@@ -62,6 +63,7 @@ export function App() {
   }, [init]);
 
   useUpdates();
+  useUiScale();
 
   useGlobalShortcuts();
 
@@ -832,6 +834,34 @@ function useGlobalShortcuts() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [step, toggleBlank, setTab, toggleAllMedia]);
+}
+
+/**
+ * Draws the console larger for somebody who cannot read it at its designed
+ * size.
+ *
+ * The webview's own zoom rather than a CSS transform: it is what a browser's
+ * ⌘+ does, so the text is re-rendered at the larger size instead of being
+ * magnified, and every measurement in the app stays in CSS pixels — the
+ * layout editor's drag maths and the reorder hit-testing never learn about
+ * it.
+ *
+ * The console only. A projection window is a separate webview and is never
+ * touched: what the congregation reads is set per screen in the presets, and
+ * a projector must not follow the eyesight of whoever is running the desk.
+ */
+function useUiScale() {
+  const uiScale = useStore((s) => s.settings.uiScale);
+  const reportError = useStore((s) => s.reportError);
+
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    void getCurrentWebview()
+      .setZoom(uiScale)
+      // Worth saying out loud: a scale that silently failed would look like
+      // the setting doing nothing at all.
+      .catch(reportError);
+  }, [uiScale, reportError]);
 }
 
 /**
