@@ -179,6 +179,13 @@ export function LayoutCanvas({
             editable numerically in the inspector. */}
         {layout.elements
           .filter((element) => element.visible)
+          // References drawn under the words are not in this layout, so the
+          // canvas must not offer a box for one — dragging it would move
+          // something nothing draws.
+          .filter(
+            (element) =>
+              element.id !== "reference" || preset.referencePlacement !== "withPassage",
+          )
           .map((element) => (
             <ElementBox
               key={element.id}

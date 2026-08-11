@@ -14,6 +14,7 @@ import type {
   Playback,
   Settings,
   Panel,
+  Passage,
   Preset,
   Shadow,
   Timer,
@@ -63,6 +64,9 @@ export function Stage({
   silent,
 }: Props) {
   const isMedia = live.kind === "image" || live.kind === "video" || live.kind === "camera";
+  // Per screen: a projector may want one line at the foot while a confidence
+  // screen reading two translations wants each reference under its passage.
+  const underPassage = preset.referencePlacement === "withPassage";
   const isTimer = live.kind === "timer";
   // A typed message belongs to the Slides tab, so it is styled there too —
   // the same layout a picture would use, with its Text element switched on.
@@ -137,6 +141,31 @@ export function Stage({
             return <NextSlide key={element.id} element={element} path={live.nextMediaPath} height={height} />;
           }
           if (isMedia && element.id !== "nextUp") return null;
+
+          // The box stands down only when the passages are carrying the
+          // references themselves. A song has no passages — one set of words,
+          // no translations to tell apart — and hiding the box there would
+          // take its reference off the screen altogether.
+          if (underPassage && live.passages.length > 0 && element.id === "reference") {
+            return null;
+          }
+
+          // The body becomes a stack: each translation's words with its own
+          // reference beneath them, which is what a parallel reading needs
+          // when one line at the foot cannot say which is which.
+          if (underPassage && element.id === "body" && live.passages.length > 0) {
+            return (
+              <StageElement
+                key={element.id}
+                element={element}
+                text={live.bodyPart}
+                passages={live.passages}
+                height={height}
+                collapse={preset.collapseLineBreaks}
+              />
+            );
+          }
+
           const text = contentOf(element.id, live);
           if (!text.trim()) return null;
           // "Next up" can be a picture of the coming slide instead of a line
@@ -292,12 +321,15 @@ function NextPreview({
 function StageElement({
   element,
   text,
+  passages,
   height,
   color,
   collapse,
 }: {
   element: LayoutElement;
   text: string;
+  /** Drawn instead of `text` when the references belong under the words. */
+  passages?: Passage[];
   height: number;
   /** Overrides the element's own colour, for the timer's warning states. */
   color?: string | null;
@@ -317,6 +349,7 @@ function StageElement({
       // fit, and collapsing line breaks changes how many lines there are — so
       // any of them changing has to re-run the fit.
       signature={[
+        passages?.length ?? 0,
         element.panel.opacity,
         element.panel.padding,
         element.panel.radius,
@@ -339,13 +372,76 @@ function StageElement({
         pointerEvents: "none",
       }}
     >
-      <PanelledText
-        text={text}
-        panel={element.panel}
-        align={element.align}
-        collapse={collapse}
-      />
+      {passages && passages.length > 0 ? (
+        <PassageStack passages={passages} panel={element.panel} align={element.align} />
+      ) : (
+        <PanelledText
+          text={text}
+          panel={element.panel}
+          align={element.align}
+          collapse={collapse}
+        />
+      )}
     </AutoFitText>
+  );
+}
+
+/**
+ * Each translation's words with its own reference underneath.
+ *
+ * The reference is sized in `em`, so it shrinks and grows with the auto-fitted
+ * words rather than being a fixed height that swamps a short verse — and the
+ * whole stack is fitted as one, so two translations and their references land
+ * inside the box together.
+ */
+function PassageStack({
+  passages,
+  panel,
+  align,
+}: {
+  passages: Passage[];
+  panel: Panel;
+  align: string;
+}) {
+  const visible = panel.opacity > 0;
+  return (
+    <span
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: `${panel.gap}em`,
+        alignItems: align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
+        maxWidth: "100%",
+      }}
+    >
+      {passages.map((passage, index) => (
+        <span
+          key={index}
+          style={{
+            display: "block",
+            maxWidth: "100%",
+            minWidth: 0,
+            background: visible ? hexToRgba(panel.color, panel.opacity) : undefined,
+            padding: visible ? `${panel.padding}em ${panel.padding * 1.4}em` : undefined,
+            borderRadius: visible ? `${panel.radius}em` : undefined,
+          }}
+        >
+          {passage.text}
+          {passage.reference.trim() && (
+            <span
+              style={{
+                display: "block",
+                marginTop: "0.35em",
+                fontSize: "0.5em",
+                opacity: 0.72,
+              }}
+            >
+              {passage.reference}
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
   );
 }
 

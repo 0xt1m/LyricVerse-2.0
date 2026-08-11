@@ -62,7 +62,9 @@ export function SongsTab() {
 
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const bookmarks = useStore((s) => s.bookmarks);
+  const remember = useStore((s) => s.remember);
+  const [selectedId, setSelectedId] = useState<number | null>(bookmarks.songs.songId);
   const openRequest = useStore((s) => s.openRequest);
   const clearOpenRequest = useStore((s) => s.clearOpenRequest);
 
@@ -133,6 +135,10 @@ export function SongsTab() {
   );
 
   useEffect(() => () => void flushSave(), [flushSave]);
+
+  useEffect(() => {
+    remember("songs", { songId: selectedId });
+  }, [selectedId, remember]);
 
   // --- Loading -----------------------------------------------------------
 
@@ -213,6 +219,60 @@ export function SongsTab() {
    * failed. Here the list is already in memory and number, title and opening
    * line are all searchable.
    */
+  /**
+   * How long the open song runs, in minutes.
+   *
+   * Kept in the settings rather than in the songbook: those files are the v1
+   * format the old app still opens. A song nobody has timed has no entry, and
+   * goes into a plan with no length rather than with a guess.
+   */
+  const songMinutes = songbook ? (settings.songMinutes[songbook] ?? {}) : {};
+
+  const setSongMinutes = (id: number, minutes: number) => {
+    if (!songbook) return;
+    const book = { ...songMinutes };
+    if (minutes > 0) book[String(id)] = minutes;
+    else delete book[String(id)];
+    void patchSettings({ songMinutes: { ...settings.songMinutes, [songbook]: book } });
+  };
+
+  /**
+   * The key the open song is played in.
+   *
+   * Free text, and stored beside the minutes rather than in the songbook, for
+   * the same reasons: a band writes "Am", "B♭" or "capo 2", and the songbook
+   * files are still opened by v1. Blanking the field takes the entry away
+   * rather than storing an empty string.
+   */
+  const songKeys = songbook ? (settings.songKeys[songbook] ?? {}) : {};
+
+  const setSongKey = (id: number, value: string) => {
+    if (!songbook) return;
+    const book = { ...songKeys };
+    const trimmed = value.trim();
+    if (trimmed) book[String(id)] = trimmed;
+    else delete book[String(id)];
+    void patchSettings({ songKeys: { ...settings.songKeys, [songbook]: book } });
+  };
+
+  /**
+   * The tempo it is played at, in beats per minute.
+   *
+   * Clamped to something a band could actually count: a stray keypress that
+   * stored 7000 would sit on the row looking like data. Blanking it, or
+   * anything that is not a number, takes the entry away.
+   */
+  const songBpm = songbook ? (settings.songBpm[songbook] ?? {}) : {};
+
+  const setSongBpm = (id: number, value: string) => {
+    if (!songbook) return;
+    const book = { ...songBpm };
+    const bpm = Number.parseInt(value, 10);
+    if (Number.isFinite(bpm) && bpm > 0) book[String(id)] = Math.min(bpm, 400);
+    else delete book[String(id)];
+    void patchSettings({ songBpm: { ...settings.songBpm, [songbook]: book } });
+  };
+
   /** This songbook's favourites. Ids, so a rename never loses them. */
   const favourites = useMemo(
     () => new Set(songbook ? (settings.favouriteSongs[songbook] ?? []) : []),
@@ -909,6 +969,11 @@ export function SongsTab() {
           kind: "song",
           label: item.title,
           note: "",
+          // Whatever the song has been timed at. Still changeable in the plan
+          // itself — a song can run long on a given Sunday.
+          minutes: songMinutes[String(item.id)] ?? 0,
+          depth: 0,
+          collapsed: false,
           ref: { songbook, songId: item.id },
         }),
     },
@@ -1134,6 +1199,8 @@ export function SongsTab() {
                         : undefined
                     }
                     item={item}
+                    songKey={songKeys[String(item.id)]}
+                    bpm={songBpm[String(item.id)]}
                     selected={item.id === selectedId}
                     marked={picked.isMulti && picked.selected.has(index)}
                     favourite={favourites.has(item.id)}
@@ -1247,6 +1314,88 @@ export function SongsTab() {
               />
             ) : (
               <span className="panel__title">{t("songs.slides")}</span>
+            )}
+            {/* The key, for whoever is playing rather than whoever is
+                driving the screen. Blank until somebody fills it in. */}
+            {song &&
+              (() => {
+                const stored = songKeys[String(song.id)] ?? "";
+                const { root, minor } = splitKey(stored);
+                // Anything typed into the old free-text field that is not one
+                // of the roots — "capo 2", say — is kept as an option of its
+                // own, so opening a song never quietly throws it away.
+                const foreign =
+                  root && !KEY_ROOTS.includes(root as (typeof KEY_ROOTS)[number]) ? root : "";
+                return (
+                  <span className="song__key" title={t("songs.keyHint")}>
+                    <select
+                      className="select"
+                      value={root}
+                      onChange={(event) =>
+                        setSongKey(
+                          song.id,
+                          event.target.value ? event.target.value + (minor ? "m" : "") : "",
+                        )
+                      }
+                    >
+                      <option value="">{t("songs.keyShort")}</option>
+                      {foreign && <option value={foreign}>{foreign}</option>}
+                      {KEY_ROOTS.map((note) => (
+                        <option key={note} value={note}>
+                          {note}
+                        </option>
+                      ))}
+                    </select>
+                    {/* Minor is a property of the key, not a separate key, so
+                        it is a switch on the note rather than another 17
+                        entries in the list. Nothing to mark until a note is
+                        picked. */}
+                    <button
+                      type="button"
+                      className="song__minor"
+                      data-on={minor || undefined}
+                      disabled={!root}
+                      title={t("songs.keyMinor")}
+                      aria-pressed={minor}
+                      onClick={() => setSongKey(song.id, root + (minor ? "" : "m"))}
+                    >
+                      m
+                    </button>
+                  </span>
+                );
+              })()}
+            {/* Tempo, beside the key it goes with. */}
+            {song && (
+              <label className="song__field" title={t("songs.bpmHint")}>
+                <input
+                  className="input song__number"
+                  inputMode="numeric"
+                  value={songBpm[String(song.id)] ?? ""}
+                  maxLength={3}
+                  onChange={(event) => setSongBpm(song.id, event.target.value)}
+                />
+                <span className="song__unit">{t("songs.bpmShort")}</span>
+              </label>
+            )}
+            {/* Minutes, next to the words they belong to. Blank until
+                somebody has timed it, and blanking it again takes it off. */}
+            {song && (
+              // The unit is part of the field rather than its placeholder: a
+              // placeholder disappears the moment somebody types, leaving a
+              // bare number that could be anything.
+              <label className="song__field" title={t("songs.minutesHint")}>
+                <input
+                  className="input song__number"
+                  inputMode="numeric"
+                  maxLength={3}
+                  value={songMinutes[String(song.id)] ?? ""}
+                  onChange={(event) => {
+                    const minutes = Number.parseInt(event.target.value, 10);
+                    setSongMinutes(song.id, Number.isFinite(minutes) ? minutes : 0);
+                  }}
+                />
+                <span className="song__unit">{t("songs.minutesShort")}</span>
+              </label>
             )}
             <button className="btn btn--sm" onClick={() => void newSong()} disabled={!songbook}>
               <Icon name="plus" size={13} />
@@ -1489,8 +1638,29 @@ function SectionGrid({
   );
 }
 
+/**
+ * The roots a key can be picked from.
+ *
+ * Both spellings of each black note are offered rather than one chosen for
+ * everybody: a band that writes E♭ does not want to read D♯ on its own sheet,
+ * and which one is "right" depends on the song, not on us.
+ */
+const KEY_ROOTS = [
+  "C", "C♯", "D♭", "D", "D♯", "E♭", "E", "F",
+  "F♯", "G♭", "G", "G♯", "A♭", "A", "A♯", "B♭", "B",
+] as const;
+
+/** Splits a stored key — "Am", "B♭", "F♯m" — into its root and its mode. */
+function splitKey(value: string): { root: string; minor: boolean } {
+  const trimmed = value.trim();
+  const minor = trimmed.endsWith("m") && trimmed.length > 1;
+  return { root: minor ? trimmed.slice(0, -1) : trimmed, minor };
+}
+
 function SongRow({
   item,
+  songKey,
+  bpm,
   selected,
   marked,
   favourite,
@@ -1502,6 +1672,10 @@ function SongRow({
   menu,
 }: {
   item: SongSummary;
+  /** The key it is played in, when somebody has set one. */
+  songKey?: string;
+  /** Its tempo in beats per minute, when somebody has set one. */
+  bpm?: number;
   selected: boolean;
   /** One of several picked for a bulk action, rather than the one being edited. */
   marked: boolean;
@@ -1543,6 +1717,17 @@ function SongRow({
         <span className="row__main">
           <span className="row__title">{item.title}</span>
         </span>
+        {/* After the title rather than before it: the list is read by title,
+            and a column of keys down the left would push every one of them
+            across for the sake of the few songs that have one. Grouped, so
+            they keep clear of the star and the grip in one place rather than
+            each badge fending for itself. */}
+        {(songKey || bpm) && (
+          <span className="row__tags">
+            {songKey && <span className="row__key">{songKey}</span>}
+            {bpm ? <span className="row__key row__key--bpm">{bpm}</span> : null}
+          </span>
+        )}
       </button>
       {onGrip && (
         <span

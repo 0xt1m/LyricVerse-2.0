@@ -64,6 +64,39 @@ export interface DownloadProgress {
   total: number;
 }
 
+/** One slide of a parallel reading: a verse of the primary translation with
+ *  the same words from every other translation on screen, each under its own
+ *  reference. The Psalms are numbered two ways, so those references disagree
+ *  for most of the Psalter. */
+export interface AlignedRow {
+  verses: number[];
+  /** "23:1" in the primary's numbering. */
+  reference: string;
+  text: string;
+  others: AlignedOther[];
+}
+
+export interface AlignedOther {
+  name: string;
+  /** What this module calls the book — "Псалми" beside the ESV's "Psalms". */
+  book: string;
+  /** The same words in that module's own numbering — "22:1". */
+  reference: string;
+  text: string;
+  /** True when that module numbers this passage differently. */
+  shifted: boolean;
+}
+
+/** One translation's words on a slide, and the reference for them in that
+ *  translation's own numbering. */
+export interface Passage {
+  text: string;
+  reference: string;
+}
+
+/** The four layouts a preset holds, named the same way everywhere. */
+export type LayoutContent = "song" | "bible" | "media" | "timer";
+
 export interface BookInfo {
   number: number;
   shortName: string;
@@ -140,6 +173,9 @@ export interface LiveState {
   sectionLabel: string;
   reference: string;
   translation: string;
+  /** Each translation's words with its own reference, in the order they are
+   *  stacked on screen. `bodyPart` is the same words run together. */
+  passages: Passage[];
   /** The slide queued after this one — what a confidence screen is for. */
   nextUp: string;
   /** The picture on that queued slide, when it carries one instead of words.
@@ -314,6 +350,10 @@ export interface Preset {
   /** Draw "next up" as a little picture of the coming slide, not a line of
    *  text. For a confidence screen facing the platform. */
   nextPreview: boolean;
+  /** Where the references go: "element" puts them all in the Reference box,
+   *  wherever it has been placed; "withPassage" puts each one directly under
+   *  the words it belongs to. */
+  referencePlacement: "element" | "withPassage";
 
   background: string;
   /** File name inside the Backgrounds folder — an image or a video. */
@@ -364,6 +404,8 @@ export interface Settings {
   language: string;
   activeSongbook: string | null;
   activeTranslation: string | null;
+  /** The plan open when the app was last closed, reopened on the next start. */
+  activePlan: string | null;
   /** Shown beneath the main translation, in this order. */
   secondaryTranslations: string[];
   blankOnSwitch: boolean;
@@ -394,6 +436,15 @@ export interface Settings {
   /** Song ids in the order they were dragged into, by songbook name. A book
    *  that was never reordered is absent and stays in number order. */
   songOrder: Record<string, number[]>;
+  /** How long each song runs in minutes, by songbook name and song id. Used
+   *  as the starting length when a song is added to a plan. */
+  songMinutes: Record<string, Record<string, number>>;
+  /** The key each song is played in, by songbook name and song id. Free text
+   *  — "G", "Am", "B♭", "capo 2" — because a band's shorthand is its own. */
+  songKeys: Record<string, Record<string, string>>;
+  /** The tempo each song is played at, in beats per minute, by songbook name
+   *  and song id. */
+  songBpm: Record<string, Record<string, number>>;
   /** The background picker's grid in order: `#rrggbb` colours and file names
    *  of imported pictures and clips, mixed. */
   backgroundOrder: string[];
@@ -495,6 +546,9 @@ export interface DeckSlide {
   /** Overrides the deck's kind for this slide — a message inside a deck of
    *  pictures is drawn as words, not as an image. */
   liveKind?: LiveKind;
+  /** Each translation's words with its own reference, for a parallel reading.
+   *  Absent on everything else, where `part` is the whole slide. */
+  passages?: Passage[];
   /** Absolute path, for a presentation slide or a local clip. */
   mediaPath?: string | null;
   youtubeId?: string | null;
@@ -516,7 +570,19 @@ export interface Deck {
 
 // --- Service plans ---------------------------------------------------------
 
-export type PlanKind = "song" | "bible" | "presentation" | "video" | "audio";
+export type PlanKind =
+  | "song"
+  | "bible"
+  | "presentation"
+  | "video"
+  | "audio"
+  /** Something the operator typed — "Sermon", "Notices", "Offering". A line of
+   *  the running order that shows nothing. */
+  | "custom"
+  /** A group: "Worship", "Communion". Holds items and other folders, and can
+   *  be folded away. Distinct from an item — a folder is where things go, an
+   *  item is a thing. */
+  | "folder";
 
 /**
  * One item in a running order.
@@ -534,7 +600,9 @@ export type PlanEntry =
     >
   | PlanEntryBase<"presentation", { presentationId: string }>
   | PlanEntryBase<"video", { videoId: string }>
-  | PlanEntryBase<"audio", { trackId: string }>;
+  | PlanEntryBase<"audio", { trackId: string }>
+  | PlanEntryBase<"custom", Record<string, never>>
+  | PlanEntryBase<"folder", Record<string, never>>;
 
 interface PlanEntryBase<K extends PlanKind, R> {
   id: string;
@@ -542,6 +610,13 @@ interface PlanEntryBase<K extends PlanKind, R> {
   label: string;
   /** The operator's own note — "after the notices", "2 verses only". */
   note: string;
+  /** Expected length in minutes; 0 when nobody has said. */
+  minutes: number;
+  /** 0 for a line of the running order, 1 for something under the line above
+   *  it — the readings belonging to a sermon. One level only. */
+  depth: number;
+  /** A folded folder: what is under it is hidden until it is opened again. */
+  collapsed: boolean;
   ref: R;
 }
 
@@ -549,6 +624,9 @@ export interface Plan {
   id: string;
   name: string;
   entries: PlanEntry[];
+  /** When the service starts, as "HH:MM". Empty means the plan is a running
+   *  order only, and each item shows its own length instead of a clock. */
+  startsAt: string;
   /** Epoch milliseconds of the last save, newest first in the list. */
   updatedMs: number;
 }

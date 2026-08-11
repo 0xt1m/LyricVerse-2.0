@@ -30,6 +30,12 @@ pub struct Settings {
     pub language: String,
     pub active_songbook: Option<String>,
     pub active_translation: Option<String>,
+    /// The plan that was open when the app was last closed.
+    ///
+    /// A service plan is built the evening before and driven the next
+    /// morning, usually after the machine has been shut down in between —
+    /// so opening to a blank plan is opening to the wrong thing.
+    pub active_plan: Option<String>,
     /// Shown beneath the main translation, in this order. Lets a bilingual
     /// congregation read the same verse in both languages at once.
     pub secondary_translations: Vec<String>,
@@ -76,6 +82,28 @@ pub struct Settings {
     pub favourite_songs: BTreeMap<String, Vec<i64>>,
     /// Sort the song list with favourites at the top.
     pub favourites_first: bool,
+    /// How long each song runs, in minutes, keyed by songbook and song id.
+    ///
+    /// Here rather than in the songbook for the same reason favourites and the
+    /// dragged order are: those files are the v1 format and are still opened
+    /// by the old app, so a new column in one would be a change the other
+    /// cannot read. A song nobody has timed simply has no entry.
+    pub song_minutes: BTreeMap<String, BTreeMap<i64, u32>>,
+    /// The key each song is played in, keyed by songbook and song id.
+    ///
+    /// Free text rather than an enum: a band writes "G", "Am", "B♭", "E/G♯"
+    /// or a capo note, and refusing anything outside a list of twelve would
+    /// only make the field useless to somebody whose habit is different. Kept
+    /// out of the songbook for the same reason the minutes are — those files
+    /// are still opened by v1. A song nobody has keyed has no entry.
+    pub song_keys: BTreeMap<String, BTreeMap<i64, String>>,
+    /// The tempo each song is played at, in beats per minute, keyed by
+    /// songbook and song id.
+    ///
+    /// A number rather than free text — unlike the key, a tempo has one way of
+    /// being written — and stored here for the same reason: those songbook
+    /// files are still opened by v1. A song nobody has timed has no entry.
+    pub song_bpm: BTreeMap<String, BTreeMap<i64, u32>>,
     /// The order the operator dragged the songs into, keyed by songbook name
     /// and holding song ids.
     ///
@@ -101,6 +129,7 @@ impl Default for Settings {
             language: "en".into(),
             active_songbook: None,
             active_translation: None,
+            active_plan: None,
             secondary_translations: Vec::new(),
             blank_on_switch: false,
             ui_scale: 1.0,
@@ -117,6 +146,9 @@ impl Default for Settings {
             audio_volume: 1.0,
             favourite_songs: BTreeMap::new(),
             favourites_first: false,
+            song_minutes: BTreeMap::new(),
+            song_keys: BTreeMap::new(),
+            song_bpm: BTreeMap::new(),
             song_order: BTreeMap::new(),
             background_order: default_palette(),
         }
@@ -199,6 +231,15 @@ pub struct Preset {
     /// congregation can see should not be showing them what has not happened
     /// yet.
     pub next_preview: bool,
+    /// Where the references go: "element" puts them all in the Reference box,
+    /// which the operator places wherever they like; "withPassage" puts each
+    /// one directly under the words it belongs to.
+    ///
+    /// Per screen, not per deck: a projector may want one line at the foot
+    /// while a confidence screen reading two translations wants each
+    /// reference under its own passage. A string rather than an enum so a
+    /// value from a newer build degrades to the default.
+    pub reference_placement: String,
 
     pub background: String,
     /// File name inside the Backgrounds folder — an image or a video.
@@ -233,6 +274,7 @@ impl Default for Preset {
             constant_background: false,
             collapse_line_breaks: true,
             next_preview: false,
+            reference_placement: "element".into(),
             background: "#000000".into(),
             background_media: None,
             background_fit: "cover".into(),
@@ -772,6 +814,12 @@ pub fn repair(settings: &mut Settings) {
         fill(&mut preset.bible, &BIBLE_ELEMENTS, &preset.id, false);
         fill_media(&mut preset.media, &preset.id);
         fill_fixed(&mut preset.timer, &TIMER_ELEMENTS, &Layout::timer_default());
+    }
+
+    for preset in &mut settings.presets {
+        if preset.reference_placement != "withPassage" {
+            preset.reference_placement = "element".into();
+        }
     }
 
     // A scale from a hand-edited file — or a newer build — must still leave a

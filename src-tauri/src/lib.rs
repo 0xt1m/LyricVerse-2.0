@@ -1,6 +1,8 @@
 // `bible` and `songs` are public so the integration tests in `tests/` can
 // exercise them directly against the real seeded databases.
 pub mod bible;
+/// Public for the integration tests, which read it against real modules.
+pub mod numbering;
 pub mod songs;
 
 mod appmenu;
@@ -394,6 +396,7 @@ fn set_live(app: AppHandle, state: State<'_, AppState>, input: LiveInput) -> Res
             section_label: input.section_label,
             reference: input.reference,
             translation: input.translation,
+            passages: input.passages,
             next_up: input.next_up,
             next_media_path: input.next_media_path,
             section_kind: input.section_kind,
@@ -528,6 +531,90 @@ fn translation(
     let loaded = Arc::new(Translation::load(&path)?);
     cache.insert(name.to_string(), Arc::clone(&loaded));
     Ok(loaded)
+}
+
+/// A chapter of the primary translation, lined up with the same passage in
+/// every other translation on screen.
+///
+/// This is what makes a parallel reading trustworthy in the Psalms: the two
+/// numbering systems disagree from Psalm 9 to Psalm 147, so fetching "the same
+/// chapter" from each module puts different psalms side by side. Each module
+/// says which system it counts in, and the passage is mapped rather than
+/// assumed.
+#[tauri::command(async)]
+fn get_parallel_chapter(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    primary: String,
+    others: Vec<String>,
+    book: i64,
+    chapter: i64,
+) -> Result<Vec<numbering::AlignedRow>> {
+    let lead = translation(&app, &state, &primary)?;
+    // A module that will not open is left out rather than failing the read —
+    // the passage in the translations that do open is still worth showing.
+    let loaded: Vec<(String, Arc<Translation>)> = others
+        .iter()
+        .filter(|name| **name != primary)
+        .filter_map(|name| {
+            translation(&app, &state, name).ok().map(|found| (name.clone(), found))
+        })
+        .collect();
+
+    let psalm_nine = |t: &Translation| t.verses(numbering::PSALMS, 9).len();
+    let lead_numbering = numbering::detect(psalm_nine(&lead));
+    let lead_length = |ch: i64| lead.verses(numbering::PSALMS, ch).len() as i64;
+    let lead_verses: Vec<(i64, String)> =
+        lead.verses(book, chapter).iter().map(|v| (v.verse, v.text.clone())).collect();
+
+    // Boxed so the borrows below outlive the call into `align`.
+    type Verses<'a> = Box<dyn Fn(i64) -> Vec<(i64, String)> + 'a>;
+    type Length<'a> = Box<dyn Fn(i64) -> i64 + 'a>;
+    let closures: Vec<(Verses, Length)> = loaded
+        .iter()
+        .map(|(_, found)| {
+            let for_verses = Arc::clone(found);
+            let for_length = Arc::clone(found);
+            // The whole chapter of the book being read: the alignment works
+            // from the verses a module actually has rather than from a count.
+            let verses: Verses = Box::new(move |ch: i64| {
+                for_verses
+                    .verses(book, ch)
+                    .iter()
+                    .map(|row| (row.verse, row.text.clone()))
+                    .collect()
+            });
+            let length: Length =
+                Box::new(move |ch: i64| for_length.verses(numbering::PSALMS, ch).len() as i64);
+            (verses, length)
+        })
+        .collect();
+
+    let others: Vec<numbering::Other> = loaded
+        .iter()
+        .zip(closures.iter())
+        .map(|((name, found), (verses, length))| numbering::Other {
+            name: name.clone(),
+            // This module's own name for the book — "Псалми" beside the ESV's
+            // "Psalms", which is what a second reference should read as.
+            book: found
+                .book(book)
+                .map(|info| info.long_name.clone())
+                .unwrap_or_default(),
+            numbering: numbering::detect(psalm_nine(found)),
+            verses: verses.as_ref(),
+            length: length.as_ref(),
+        })
+        .collect();
+
+    Ok(numbering::align(
+        book,
+        chapter,
+        lead_numbering,
+        &lead_length,
+        &lead_verses,
+        &others,
+    ))
 }
 
 #[tauri::command]
@@ -1157,6 +1244,7 @@ pub fn run() {
             get_books,
             get_chapters,
             get_verses,
+            get_parallel_chapter,
             search_bible,
             resolve_reference,
             get_passage,

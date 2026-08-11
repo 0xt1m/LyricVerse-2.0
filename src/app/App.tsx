@@ -794,7 +794,12 @@ function useGlobalShortcuts() {
           return;
         }
         event.preventDefault();
-        void toggleBlank();
+        // One direction only: Escape hides what is on the screen and never
+        // brings it back. It is the key somebody hits when the wrong thing is
+        // up in front of the room, often twice in a hurry — and a toggle
+        // would put that very thing straight back on the wall. B is the
+        // toggle; this is the way out.
+        if (!useStore.getState().blanked) void toggleBlank();
         return;
       }
 

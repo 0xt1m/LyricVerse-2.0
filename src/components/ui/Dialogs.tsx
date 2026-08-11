@@ -34,6 +34,15 @@ interface PromptOptions {
   confirmLabel?: string;
   /** A message spans several lines; a name does not. */
   multiline?: boolean;
+  /**
+   * Whether an empty answer is a real answer.
+   *
+   * A name is not — a songbook called nothing is a mistake — so the confirm
+   * button stays disabled by default. A note or a duration is: clearing one is
+   * exactly how somebody takes it off again, and without this the only way out
+   * was Cancel, which changed nothing.
+   */
+  allowEmpty?: boolean;
 }
 
 interface ColorOptions {
@@ -147,7 +156,7 @@ export function DialogProvider({ children }: { children: ReactNode }) {
               </button>
               <button
                 className="btn btn--primary"
-                disabled={!draft.trim()}
+                disabled={!pending.options.allowEmpty && !draft.trim()}
                 onClick={() => settle(draft.trim())}
               >
                 {pending.options.confirmLabel ?? t("common.save")}
@@ -170,7 +179,8 @@ export function DialogProvider({ children }: { children: ReactNode }) {
                 // Enter is a newline here; ⌘/Ctrl+Enter commits, as it does
                 // in the song editor.
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && draft.trim()) {
+                  const ready = pending.options.allowEmpty || draft.trim();
+                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && ready) {
                     event.preventDefault();
                     settle(draft.trim());
                   }

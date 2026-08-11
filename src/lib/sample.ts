@@ -30,7 +30,14 @@ interface BibleSample {
   /** A second translation of the same verse, for checking a parallel layout.
    *  Twice the text needs roughly twice the box, which is easy to forget
    *  until it is on the wall. */
-  parallel?: { translation: string; body: string };
+  parallel?: {
+    translation: string;
+    body: string;
+    /** Its reference in its own terms — the Psalms are numbered two ways, and
+     *  a layout with the references under the passages has to be arranged
+     *  against what that actually looks like. */
+    reference?: string;
+  };
 }
 
 const SONGS: Record<string, SongSample[]> = {
@@ -98,11 +105,19 @@ const VERSES: Record<string, BibleSample[]> = {
         "щоб кожен, хто вірує в Нього, не згинув, але мав життя вічне.",
     },
     {
+      // Ogienko counts the Psalms the Greek way, so the shepherd psalm is its
+      // 22nd — which is also what makes this the sample worth arranging a
+      // parallel layout against.
       book: "Псалми",
-      chapter: 23,
+      chapter: 22,
       verse: 1,
       translation: "Ogienko 1988",
       body: "Господь то мій Пастир, тому в недостатку не буду.",
+      parallel: {
+        translation: "King James Version",
+        body: "The LORD is my shepherd; I shall not want.",
+        reference: "Psalms 23:1",
+      },
     },
     {
       book: "Вiд Матвiя",
@@ -143,6 +158,13 @@ const VERSES: Record<string, BibleSample[]> = {
       verse: 1,
       translation: "King James Version",
       body: "The LORD is my shepherd; I shall not want.",
+      parallel: {
+        translation: "Ogienko 1988",
+        body: "Господь то мій Пастир, тому в недостатку не буду.",
+        // A psalm behind: the Greek numbering, which is the case a parallel
+        // layout most needs to be checked against.
+        reference: "Псалми 22:1",
+      },
     },
     {
       book: "Matthew",
@@ -208,6 +230,7 @@ export function sampleLive(
       sectionLabel: "",
       reference: "",
       translation: "",
+      passages: [],
       nextUp: "",
       nextMediaPath: null,
       sectionKind: "",
@@ -232,6 +255,7 @@ export function sampleLive(
       sectionLabel: "",
       reference: "",
       translation: "",
+      passages: [],
       // Something for the "coming next" box to hold while it is being
       // positioned. On a real deck of pictures that box shows a thumbnail of
       // the slide ahead, which the editor has no picture to stand in for.
@@ -265,6 +289,23 @@ export function sampleLive(
       sectionLabel: "",
       reference: `${sample.book} ${sample.chapter}:${sample.verse}`,
       translation,
+      // What a screen putting the references under the words will draw, so
+      // the editor arranges the box against the real thing rather than
+      // against a version of it with the references missing.
+      passages: [
+        {
+          text: sample.body,
+          reference: `${sample.book} ${sample.chapter}:${sample.verse}`,
+        },
+        ...(sample.parallel
+          ? [
+              {
+                text: sample.parallel.body,
+                reference: sample.parallel.reference ?? sample.parallel.translation,
+              },
+            ]
+          : []),
+      ],
       nextUp: t_next(kind, language, variant),
       nextMediaPath: null,
       sectionKind: "scripture",
@@ -285,6 +326,9 @@ export function sampleLive(
     sectionLabel: sample.section,
     reference: `${sample.number} · ${sample.title}`,
     translation: "",
+    // A song is one set of words with nothing to tell apart, so its reference
+    // stays in the Reference box whatever the screen is set to.
+    passages: [],
     nextUp: t_next(kind, language, variant),
     nextMediaPath: null,
     sectionKind: "chorus",

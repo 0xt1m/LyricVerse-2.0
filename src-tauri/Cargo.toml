@@ -43,6 +43,12 @@ image = { version = "0.25", default-features = false, features = [
     "png", "jpeg", "gif", "webp", "bmp", "tiff", "ico", "qoi", "pnm", "tga",
 ] }
 
+# Raising a projection window above the macOS menu bar, which is drawn over
+# ordinary windows — including always-on-top ones. Nothing else needs it, so
+# it is only pulled in on macOS.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+
 [dev-dependencies]
 # Only for the network test in `catalog.rs`, which is `#[ignore]`d.
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

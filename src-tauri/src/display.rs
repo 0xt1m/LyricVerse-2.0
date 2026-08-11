@@ -76,6 +76,38 @@ fn covers(window: &WebviewWindow, position: PhysicalPosition<i32>, size: Physica
     )
 }
 
+/// Lifts a projection window above the menu bar.
+///
+/// macOS draws the menu bar over ordinary windows, and "always on top" is not
+/// high enough: it puts a window at the floating level, which is below the
+/// menu bar's. On a projector that means the operator's own menu across the
+/// top of the scripture, which is what this is here to stop.
+///
+/// The level is raised just past the one the menu bar uses, not to the top of
+/// the stack — a projection window has no business sitting over a system
+/// alert.
+#[cfg(target_os = "macos")]
+fn raise_above_menu_bar(window: &WebviewWindow) {
+    use objc::{msg_send, sel, sel_impl};
+
+    // NSStatusWindowLevel is 25, and the menu bar sits just below it.
+    const ABOVE_MENU_BAR: i64 = 26;
+
+    let Ok(handle) = window.ns_window() else { return };
+    if handle.is_null() {
+        return;
+    }
+    unsafe {
+        let ns_window = handle as *mut objc::runtime::Object;
+        let _: () = msg_send![ns_window, setLevel: ABOVE_MENU_BAR];
+    }
+}
+
+/// Every other platform stacks a borderless always-on-top window over its own
+/// task bar without help.
+#[cfg(not(target_os = "macos"))]
+fn raise_above_menu_bar(_window: &WebviewWindow) {}
+
 /// Puts the window over the whole of a screen — and makes sure it stayed there.
 ///
 /// Setting the position and then the size is not enough on its own. Both are
@@ -92,6 +124,7 @@ fn covers(window: &WebviewWindow, position: PhysicalPosition<i32>, size: Physica
 /// which is exactly what nobody wants on a wall. So the rectangle is asserted
 /// again as the window settles, and the last word is ours.
 fn cover(window: &WebviewWindow, position: PhysicalPosition<i32>, size: PhysicalSize<u32>) {
+    raise_above_menu_bar(window);
     set_rect(window, position, size);
 
     let label = window.label().to_string();

@@ -46,7 +46,9 @@ export function PresentationsTab() {
   const imageExtensions = useImageExtensions();
 
   const [decks, setDecks] = useState<Presentation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const bookmarks = useStore((s) => s.bookmarks);
+  const remember = useStore((s) => s.remember);
+  const [activeId, setActiveId] = useState<string | null>(bookmarks.presentations.deckId);
   const openRequest = useStore((s) => s.openRequest);
   const clearOpenRequest = useStore((s) => s.clearOpenRequest);
 
@@ -59,6 +61,12 @@ export function PresentationsTab() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const active = decks.find((item) => item.id === activeId) ?? null;
+
+  // Written on every change, so coming back to the tab opens the deck that was
+  // being worked on rather than the first in the list.
+  useEffect(() => {
+    remember("presentations", { deckId: activeId });
+  }, [activeId, remember]);
 
   const reload = useCallback(async () => {
     try {
@@ -443,6 +451,9 @@ export function PresentationsTab() {
                             kind: "presentation",
                             label: item.name,
                             note: "",
+                            minutes: 0,
+                            depth: 0,
+                            collapsed: false,
                             ref: { presentationId: item.id },
                           }),
                       },

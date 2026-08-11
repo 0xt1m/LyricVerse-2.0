@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lyricverse_lib::{bible, songs};
+use lyricverse_lib::{bible, numbering, songs};
 
 fn seed(kind: &str) -> Option<PathBuf> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/seed").join(kind);
@@ -206,4 +206,209 @@ fn quick_references_resolve_the_way_an_operator_types_them() {
 
     // Nonsense must fail cleanly rather than land on a wrong book.
     assert!(translation.resolve("zzzz 1:1").is_none());
+}
+
+/// The Psalms are numbered two ways, and the app has to read one against the
+/// other. This checks the mapping against the modules actually shipped: the
+/// ESV counts in Hebrew, Ogienko 1988 in Greek.
+#[test]
+fn psalm_numbering_lines_up_between_the_seeded_modules() {
+    let Some(dir) = seed("BibleTranslations") else {
+        eprintln!("no seeded translations — skipping");
+        return;
+    };
+    let hebrew = match bible::Translation::load(&dir.join("ESV.SQLite3")) {
+        Ok(t) => t,
+        Err(_) => {
+            eprintln!("ESV not staged — skipping");
+            return;
+        }
+    };
+    let greek = match bible::Translation::load(&dir.join("UBIO'88.SQLite3")) {
+        Ok(t) => t,
+        Err(_) => {
+            eprintln!("Ogienko not staged — skipping");
+            return;
+        }
+    };
+
+    let hebrew_len = |ch: i64| hebrew.verses(numbering::PSALMS, ch).len() as i64;
+    let greek_len = |ch: i64| greek.verses(numbering::PSALMS, ch).len() as i64;
+
+    // Each module says which system it counts in, without being told.
+    assert_eq!(
+        numbering::detect(hebrew.verses(numbering::PSALMS, 9).len()),
+        numbering::Numbering::Hebrew,
+        "the ESV counts in Hebrew"
+    );
+    assert_eq!(
+        numbering::detect(greek.verses(numbering::PSALMS, 9).len()),
+        numbering::Numbering::Greek,
+        "Ogienko 1988 counts in Greek"
+    );
+
+    let lengths = numbering::Lengths { hebrew: &hebrew_len, greek: &greek_len };
+
+    // The joins, on the real text.
+    for (from, to) in [
+        ((23, 1), (22, 1)),
+        ((9, 20), (9, 21)),
+        ((10, 1), (9, 22)),
+        ((116, 10), (115, 1)),
+        ((147, 12), (147, 1)),
+        ((150, 6), (150, 6)),
+    ] {
+        assert_eq!(
+            numbering::hebrew_to_greek(from.0, from.1, &lengths),
+            to,
+            "Hebrew {}:{}",
+            from.0,
+            from.1
+        );
+    }
+
+    // Every verse of the Psalter, mapped across and back, and every mapped
+    // reference actually present in the other module — the check that would
+    // catch an off-by-one anywhere in the 150.
+    for chapter in 1..=150 {
+        for verse in 1..=hebrew_len(chapter) {
+            let (gc, gv) = numbering::hebrew_to_greek(chapter, verse, &lengths);
+            assert!(
+                gv >= 1 && gv <= greek_len(gc),
+                "Hebrew {chapter}:{verse} maps to Greek {gc}:{gv}, which is not in the module"
+            );
+            assert_eq!(
+                numbering::greek_to_hebrew(gc, gv, &lengths),
+                (chapter, verse),
+                "Hebrew {chapter}:{verse} did not survive the round trip"
+            );
+        }
+    }
+}
+
+/// What the screens actually receive for a parallel reading, on the real
+/// modules: the words of both translations, and both references.
+#[test]
+fn a_parallel_psalm_carries_both_references() {
+    let Some(dir) = seed("BibleTranslations") else {
+        eprintln!("no seeded translations — skipping");
+        return;
+    };
+    let (Ok(esv), Ok(ogienko)) = (
+        bible::Translation::load(&dir.join("ESV.SQLite3")),
+        bible::Translation::load(&dir.join("UBIO'88.SQLite3")),
+    ) else {
+        eprintln!("seeded modules not staged — skipping");
+        return;
+    };
+
+    let greek_length = |ch: i64| ogienko.verses(numbering::PSALMS, ch).len() as i64;
+    let greek_verses = |ch: i64| -> Vec<(i64, String)> {
+        ogienko
+            .verses(numbering::PSALMS, ch)
+            .iter()
+            .map(|row| (row.verse, row.text.clone()))
+            .collect()
+    };
+    let hebrew_length = |ch: i64| esv.verses(numbering::PSALMS, ch).len() as i64;
+
+    let read = |chapter: i64| {
+        let primary: Vec<(i64, String)> = esv
+            .verses(numbering::PSALMS, chapter)
+            .iter()
+            .map(|row| (row.verse, row.text.clone()))
+            .collect();
+        let other = numbering::Other {
+            name: "Ogienko 1988".into(),
+            book: ogienko.book(numbering::PSALMS).map(|b| b.long_name.clone()).unwrap_or_default(),
+            numbering: numbering::detect(ogienko.verses(numbering::PSALMS, 9).len()),
+            verses: &greek_verses,
+            length: &greek_length,
+        };
+        numbering::align(
+            numbering::PSALMS,
+            chapter,
+            numbering::detect(esv.verses(numbering::PSALMS, 9).len()),
+            &hebrew_length,
+            &primary,
+            std::slice::from_ref(&other),
+        )
+    };
+
+    // Psalm 9:1 — the ESV folds the superscription into verse 1, the Greek
+    // numbers it, so one verse here answers to two there.
+    let nine = read(9);
+    let first = &nine[0];
+    assert_eq!(first.reference, "9:1");
+    let beside = &first.others[0];
+    assert_eq!(beside.reference, "9:1-2", "both Greek verses belong to this slide");
+    assert!(beside.shifted, "both references must show");
+    assert!(!beside.book.is_empty(), "the module names the book itself");
+    assert!(!beside.text.trim().is_empty(), "the Ukrainian words are on the slide");
+
+    // Psalm 23 — the plain one-behind case.
+    let twenty_three = read(23);
+    assert_eq!(twenty_three[0].reference, "23:1");
+    assert_eq!(twenty_three[0].others[0].reference, "22:1");
+    assert!(twenty_three[0].others[0].shifted);
+
+    // Psalm 150 — the numbering agrees again, so only one reference is shown.
+    let last = read(150);
+    assert_eq!(last[0].others[0].reference, "150:1");
+    assert!(!last[0].others[0].shifted, "nothing to say when they agree");
+
+    // Three translations at once: each one names the book and the verse in its
+    // own terms, whether or not its numbering matches the primary's. That is
+    // what the screen needs to print a reference a reader can follow in the
+    // language they are reading.
+    let Ok(kjv) = bible::Translation::load(&dir.join("KJV.SQLite3")) else {
+        eprintln!("KJV not staged — skipping the three-way check");
+        return;
+    };
+    let kjv_length = |ch: i64| kjv.verses(numbering::PSALMS, ch).len() as i64;
+    let kjv_verses = |ch: i64| -> Vec<(i64, String)> {
+        kjv.verses(numbering::PSALMS, ch)
+            .iter()
+            .map(|row| (row.verse, row.text.clone()))
+            .collect()
+    };
+    let primary: Vec<(i64, String)> = esv
+        .verses(numbering::PSALMS, 23)
+        .iter()
+        .map(|row| (row.verse, row.text.clone()))
+        .collect();
+    let three = numbering::align(
+        numbering::PSALMS,
+        23,
+        numbering::detect(esv.verses(numbering::PSALMS, 9).len()),
+        &hebrew_length,
+        &primary,
+        &[
+            numbering::Other {
+                name: "Ogienko 1988".into(),
+                book: ogienko.book(numbering::PSALMS).map(|b| b.long_name.clone()).unwrap_or_default(),
+                numbering: numbering::detect(ogienko.verses(numbering::PSALMS, 9).len()),
+                verses: &greek_verses,
+                length: &greek_length,
+            },
+            numbering::Other {
+                name: "King James Version".into(),
+                book: kjv.book(numbering::PSALMS).map(|b| b.long_name.clone()).unwrap_or_default(),
+                numbering: numbering::detect(kjv.verses(numbering::PSALMS, 9).len()),
+                verses: &kjv_verses,
+                length: &kjv_length,
+            },
+        ],
+    );
+
+    let row = &three[0];
+    assert_eq!(row.others.len(), 2, "both translations answer for this verse");
+    for beside in &row.others {
+        assert!(!beside.book.is_empty(), "{} names the book", beside.name);
+        assert!(!beside.reference.is_empty(), "{} gives a reference", beside.name);
+        assert!(!beside.text.trim().is_empty(), "{} has the words", beside.name);
+    }
+    // The Greek-numbered one is a psalm behind; the Hebrew-numbered one is not.
+    assert_eq!(row.others[0].reference, "22:1");
+    assert_eq!(row.others[1].reference, "23:1");
 }

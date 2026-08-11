@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
-import type { BookInfo, SearchHit, VerseRow } from "../api/types";
+import type { AlignedRow, BookInfo, SearchHit, VerseRow } from "../api/types";
 import { useStore } from "../app/store";
 import { bibleDeck, type ParallelTranslation } from "../lib/deck";
 import { normalize, splitAt } from "../lib/text";
@@ -27,12 +27,24 @@ export function BibleTab() {
   const reportError = useStore((s) => s.reportError);
   const toast = useStore((s) => s.toast);
 
+  const bookmarks = useStore((s) => s.bookmarks);
+  const remember = useStore((s) => s.remember);
+
   const [books, setBooks] = useState<BookInfo[]>([]);
-  const [bookNumber, setBookNumber] = useState<number | null>(null);
+  // Opened where it was left. The effects below still check the passage is in
+  // the translation now in use, so a bookmark from a module that has since
+  // been removed lands on its first book rather than on nothing.
+  const [bookNumber, setBookNumber] = useState<number | null>(bookmarks.bible.book);
   const [chapters, setChapters] = useState<number[]>([]);
-  const [chapter, setChapter] = useState<number | null>(null);
+  const [chapter, setChapter] = useState<number | null>(bookmarks.bible.chapter);
   const [verses, setVerses] = useState<VerseRow[]>([]);
   const [parallel, setParallel] = useState<ParallelTranslation[]>([]);
+  /** The chapter lined up across the translations on screen — see the Rust
+   *  side for why the Psalms cannot simply be read by chapter number. */
+  const [aligned, setAligned] = useState<AlignedRow[] | null>(null);
+  /** The pair of translations already complained about, so a backend that
+   *  cannot line them up is reported once rather than every chapter. */
+  const complained = useRef<string | null>(null);
   const [range, setRange] = useState<{ start: number; end: number } | null>(null);
   const openRequest = useStore((s) => s.openRequest);
   const clearOpenRequest = useStore((s) => s.clearOpenRequest);
@@ -192,6 +204,12 @@ export function BibleTab() {
     };
   }, [translation, debouncedText, reportError]);
 
+  // Written on every move, so leaving the tab by any route — the rail, a
+  // shortcut, a plan opening a song — comes back to the same passage.
+  useEffect(() => {
+    remember("bible", { book: bookNumber, chapter });
+  }, [bookNumber, chapter, remember]);
+
   const book = useMemo(
     () => books.find((candidate) => candidate.number === bookNumber) ?? null,
     [books, bookNumber],
@@ -207,10 +225,45 @@ export function BibleTab() {
     );
   }, [books, bookFilter]);
 
+  // Fetched whenever a second translation is showing: the backend knows which
+  // system each module numbers the Psalms in, and lines the passage up.
+  useEffect(() => {
+    if (!translation || bookNumber === null || chapter === null || secondary.length === 0) {
+      setAligned(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .getParallelChapter(translation, secondary, bookNumber, chapter)
+      .then((rows) => {
+        if (cancelled) return;
+        setAligned(rows);
+        complained.current = null;
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        // The passage is not lost — the plain per-chapter read below still
+        // shows it — but the lining-up is silently gone, and a parallel
+        // reading that has quietly stopped mapping the Psalms looks exactly
+        // like one that never did. Said once per pair of translations, not
+        // once per chapter, so stepping through a psalm is not a stream of
+        // toasts.
+        setAligned(null);
+        const pair = `${translation}:${secondary.join(",")}`;
+        if (complained.current !== pair) {
+          complained.current = pair;
+          reportError(error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [translation, secondary, bookNumber, chapter, libraryRevision]);
+
   useEffect(() => {
     if (!book || chapter === null) return;
-    void loadDeck(bibleDeck(book, chapter, verses, range, parallel));
-  }, [book, chapter, verses, range, parallel, loadDeck]);
+    void loadDeck(bibleDeck(book, chapter, verses, range, parallel, aligned));
+  }, [book, chapter, verses, range, parallel, aligned, loadDeck]);
 
   /**
    * Navigates to a reference. `live` is false while the operator is still
@@ -569,6 +622,9 @@ export function BibleTab() {
                           kind: "bible",
                           label: slide.reference || `${book?.longName ?? ""} ${chapter}:${verse}`,
                           note: "",
+                          minutes: 0,
+                          depth: 0,
+                          collapsed: false,
                           ref: {
                             translation,
                             book: bookNumber,

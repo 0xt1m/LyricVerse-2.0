@@ -48,6 +48,14 @@ pub struct LiveState {
     pub reference: String,
     /// The translation's name.
     pub translation: String,
+    /// Each translation's words with its own reference, in the order they are
+    /// stacked on screen.
+    ///
+    /// `body_part` holds the same words run together, which is what a screen
+    /// showing one translation needs. This is what a screen putting each
+    /// reference under its own passage needs, and only the display knows
+    /// which of the two it is.
+    pub passages: Vec<Passage>,
     /// The slide queued after this one. A confidence screen exists to show it.
     pub next_up: String,
     /// The picture on that queued slide, when it has one instead of words —
@@ -78,6 +86,7 @@ impl Default for LiveState {
             section_label: String::new(),
             reference: String::new(),
             translation: String::new(),
+            passages: Vec::new(),
             next_up: String::new(),
             next_media_path: None,
             section_kind: String::new(),
@@ -107,6 +116,8 @@ pub struct LiveInput {
     #[serde(default)]
     pub translation: String,
     #[serde(default)]
+    pub passages: Vec<Passage>,
+    #[serde(default)]
     pub next_up: String,
     #[serde(default)]
     pub next_media_path: Option<String>,
@@ -120,6 +131,17 @@ pub struct LiveInput {
     pub youtube_id: Option<String>,
 }
 
+
+/// One translation's words on a slide, with the reference for those words in
+/// that translation's own numbering.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Passage {
+    pub text: String,
+    /// "Псалми 22:1" — empty when there is nothing worth naming.
+    #[serde(default)]
+    pub reference: String,
+}
 
 /// A countdown, count-up or wall clock, drawn by the `timer` layout element.
 ///

@@ -6,6 +6,7 @@ import type {
   Presentation,
   Timer,
   Video,
+  AlignedRow,
   BookInfo,
   Bootstrap,
   DisplayInfo,
@@ -125,6 +126,7 @@ export const api = {
     sectionLabel: string;
     reference: string;
     translation: string;
+    passages?: { text: string; reference: string }[];
     nextUp: string;
     nextMediaPath?: string | null;
     sectionKind: string;
@@ -164,6 +166,8 @@ export const api = {
     invoke<number[]>("get_chapters", { translationName, book }),
   getVerses: (translationName: string, book: number, chapter: number) =>
     invoke<VerseRow[]>("get_verses", { translationName, book, chapter }),
+  getParallelChapter: (primary: string, others: string[], book: number, chapter: number) =>
+    invoke<AlignedRow[]>("get_parallel_chapter", { primary, others, book, chapter }),
   searchBible: (translationName: string, query: string, limit?: number) =>
     invoke<SearchHit[]>("search_bible", { translationName, query, limit: limit ?? null }),
   resolveReference: (translationName: string, query: string) =>

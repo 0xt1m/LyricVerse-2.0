@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { EVENT, api, errorMessage, on } from "../api";
 import type {
   Deck,
+  ElementId,
+  LayoutContent,
   Plan,
   PlanEntry,
   Defaults,
@@ -20,7 +22,14 @@ import type {
 import { translate } from "../lib/i18n";
 import { slideToLive } from "../lib/deck";
 import { stamped } from "../lib/playback";
-import { newPlan, planEntryId, resolvePlanEntry } from "../lib/plan";
+import {
+  newPlan,
+  planEntryId,
+  reorderEntries,
+  reorderSelection,
+  resolvePlanEntry,
+  slideForVerse,
+} from "../lib/plan";
 
 /** Every translation on screen, not just the main one. */
 export function translationLabel(settings: Settings): string {
@@ -83,6 +92,24 @@ export interface HistoryEntry {
   at: number;
 }
 
+/** The place each tab returns to. Ids and numbers only — anything heavier is
+ *  re-read from the backend, which is cheap and cannot go stale. */
+export interface Bookmarks {
+  bible: { book: number | null; chapter: number | null };
+  songs: { songId: number | null };
+  presentations: { deckId: string | null };
+  video: { videoId: string | null };
+  /** Setting a screen up is fiddly work — the screen, which of its four
+   *  layouts, and the element being moved. Coming back to find all three
+   *  reset is the difference between a five-minute job and a ten-minute one. */
+  displays: {
+    screenId: string | null;
+    content: LayoutContent | null;
+    element: ElementId | null;
+    sample: number;
+  };
+}
+
 interface Store {
   ready: boolean;
   bootError: string | null;
@@ -90,6 +117,16 @@ interface Store {
   dataDir: string;
 
   tab: Tab;
+  /**
+   * Where each tab was when it was last left.
+   *
+   * A tab is unmounted the moment another is opened — the camera has to let
+   * go of the device, a clip has to stop decoding — so anything it held in
+   * local state is gone. Coming back to the Bible tab to find it at Genesis
+   * again, mid-service, is the kind of thing that costs a minute nobody has.
+   */
+  bookmarks: Bookmarks;
+  remember: <K extends keyof Bookmarks>(tab: K, place: Partial<Bookmarks[K]>) => void;
   settings: Settings;
   displays: DisplayInfo[];
   webScreens: WebScreenStatus[];
@@ -142,6 +179,29 @@ interface Store {
   removeFromPlan: (entryId: string) => void;
   movePlanEntry: (from: number, to: number) => void;
   setPlanNote: (entryId: string, note: string) => void;
+  /** How long an item is expected to take. 0 clears it. */
+  setPlanMinutes: (entryId: string, minutes: number) => void;
+  /** A group the other lines go inside — "Worship", "Communion". */
+  addPlanFolder: (label: string) => void;
+  /** A line of the running order that shows nothing — "Offering", "Notices". */
+  addPlanItem: (label: string) => void;
+  /** Moves an entry under the line above it, or back out. */
+  setPlanDepth: (entryId: string, depth: number) => void;
+  /** Renames a folder. The other kinds take their label from the library. */
+  renamePlanEntry: (entryId: string, label: string) => void;
+  /** Folds a folder shut, or opens it again. */
+  togglePlanFolder: (entryId: string) => void;
+  /** Both of the above, which differ only in the kind they write. */
+  addPlanLine: (kind: "custom" | "folder", label: string) => void;
+  /** Moves everything picked out to one place, keeping their order. */
+  movePlanEntries: (ids: string[], to: number) => void;
+  /** Takes several lines out at once — one write, one save. */
+  removePlanEntries: (ids: string[]) => void;
+  /** The plan line whose content is on the screens, so the running order can
+   *  show where the service has got to. Cleared when the output is blanked. */
+  livePlanEntry: string | null;
+  /** "HH:MM", or empty to go back to lengths without a clock. */
+  setPlanStart: (startsAt: string) => void;
   /**
    * Opens a plan entry where it lives — the song on the Songs tab, the passage
    * on the Bible tab — with `live` deciding whether it also goes to the
@@ -230,6 +290,7 @@ const EMPTY_SETTINGS: Settings = {
   language: "en",
   activeSongbook: null,
   activeTranslation: null,
+  activePlan: null,
   secondaryTranslations: [],
   blankOnSwitch: false,
   uiScale: 1,
@@ -246,6 +307,9 @@ const EMPTY_SETTINGS: Settings = {
   favouriteSongs: {},
   favouritesFirst: false,
   songOrder: {},
+  songMinutes: {},
+  songKeys: {},
+  songBpm: {},
   presets: [],
   displays: {},
 };
@@ -268,6 +332,7 @@ const EMPTY_LIVE: LiveState = {
   sectionLabel: "",
   reference: "",
   translation: "",
+  passages: [],
   nextUp: "",
   nextMediaPath: null,
   sectionKind: "",
@@ -306,6 +371,10 @@ const TAB_FOR_PLAN: Record<PlanEntry["kind"], Tab> = {
   presentation: "presentations",
   video: "video",
   audio: "audio",
+  // Neither belongs to a tab — one is a line of the running order, the other
+  // is where lines go. `openPlanEntry` never gets this far for either.
+  custom: "songs",
+  folder: "songs",
 };
 
 // --- Plan autosave ----------------------------------------------------------
@@ -436,6 +505,14 @@ export const useStore = create<Store>((set, get) => ({
   dataDir: "",
 
   tab: "songs",
+  livePlanEntry: null,
+  bookmarks: {
+    bible: { book: null, chapter: null },
+    songs: { songId: null },
+    presentations: { deckId: null },
+    video: { videoId: null },
+    displays: { screenId: null, content: null, element: null, sample: 0 },
+  },
   settings: EMPTY_SETTINGS,
   displays: [],
   webScreens: [],
@@ -525,6 +602,11 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setTab: (tab) => set({ tab }),
+
+  remember: (tab, place) =>
+    set((state) => ({
+      bookmarks: { ...state.bookmarks, [tab]: { ...state.bookmarks[tab], ...place } },
+    })),
 
   setSidePreviewDisplay: (sidePreviewDisplayId) => set({ sidePreviewDisplayId }),
 
@@ -804,15 +886,41 @@ export const useStore = create<Store>((set, get) => ({
     schedulePlanSave(get);
   },
 
+  removePlanEntries(ids) {
+    const wanted = new Set(ids);
+    if (wanted.size === 0) return;
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        // A folder takes its contents with it: removing "Worship" and leaving
+        // its songs behind at a level with nothing above them would leave the
+        // plan in a shape nobody asked for.
+        entries: state.plan.entries.filter((entry, index, all) => {
+          if (wanted.has(entry.id)) return false;
+          for (let above = index - 1; above >= 0; above -= 1) {
+            const parent = all[above];
+            if (!parent || parent.depth >= entry.depth) continue;
+            return !(parent.kind === "folder" && wanted.has(parent.id));
+          }
+          return true;
+        }),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  movePlanEntries(ids, to) {
+    set((state) => ({
+      plan: { ...state.plan, entries: reorderSelection(state.plan.entries, ids, to) },
+    }));
+    schedulePlanSave(get);
+  },
+
   movePlanEntry(from, to) {
-    set((state) => {
-      const entries = [...state.plan.entries];
-      if (from < 0 || to < 0 || from >= entries.length || to >= entries.length) return {};
-      const [moved] = entries.splice(from, 1);
-      if (!moved) return {};
-      entries.splice(to, 0, moved);
-      return { plan: { ...state.plan, entries } };
-    });
+    // The rule itself is in `lib/plan`, where it can be run on its own.
+    set((state) => ({
+      plan: { ...state.plan, entries: reorderEntries(state.plan.entries, from, to) },
+    }));
     schedulePlanSave(get);
   },
 
@@ -828,9 +936,103 @@ export const useStore = create<Store>((set, get) => ({
     schedulePlanSave(get);
   },
 
+  addPlanFolder(label) {
+    get().addPlanLine("folder", label);
+  },
+
+  addPlanItem(label) {
+    get().addPlanLine("custom", label);
+  },
+
+  addPlanLine(kind, label) {
+    const name = label.trim();
+    if (!name) return;
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: [
+          ...state.plan.entries,
+          {
+            id: planEntryId(),
+            kind,
+            label: name,
+            note: "",
+            minutes: 0,
+            depth: 0,
+            collapsed: false,
+            ref: {},
+          },
+        ],
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  togglePlanFolder(entryId) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.map((entry) =>
+          entry.id === entryId ? { ...entry, collapsed: !entry.collapsed } : entry,
+        ),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  renamePlanEntry(entryId, label) {
+    const name = label.trim();
+    if (!name) return;
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.map((entry) =>
+          entry.id === entryId ? { ...entry, label: name } : entry,
+        ),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  setPlanDepth(entryId, depth) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.map((entry) =>
+          // Folders nest, so this is a level rather than a flag — clamped only
+          // against going above the top.
+          entry.id === entryId ? { ...entry, depth: Math.max(0, depth) } : entry,
+        ),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  setPlanMinutes(entryId, minutes) {
+    set((state) => ({
+      plan: {
+        ...state.plan,
+        entries: state.plan.entries.map((entry) =>
+          entry.id === entryId
+            ? { ...entry, minutes: Math.max(0, Math.round(minutes)) }
+            : entry,
+        ),
+      },
+    }));
+    schedulePlanSave(get);
+  },
+
+  setPlanStart(startsAt) {
+    set((state) => ({ plan: { ...state.plan, startsAt } }));
+    schedulePlanSave(get);
+  },
+
   async openPlanEntry(entryId, live = false) {
     const entry = get().plan.entries.find((item) => item.id === entryId);
     if (!entry) return;
+    // A typed line holds a place in the order and a folder holds other lines.
+    // Neither shows anything, and neither is missing from the library.
+    if (entry.kind === "custom" || entry.kind === "folder") return;
     try {
       const action = await resolvePlanEntry(entry, get().settings);
       // Gone from the library since it was added. The line stays in the plan
@@ -852,7 +1054,15 @@ export const useStore = create<Store>((set, get) => ({
       // tab, which is harmless — reloading the same key keeps the place.
       await get().loadDeck(action.deck);
       set({ tab: TAB_FOR_PLAN[entry.kind], openRequest: entry });
-      if (live) await get().go(0);
+
+      // Scripture opens at the verse the plan names, not at the top of the
+      // chapter: "Romans 8:38" in a running order means that verse, and
+      // hunting for it down a chapter of forty is exactly the work the plan
+      // was written to save.
+      const at =
+        entry.kind === "bible" ? Math.max(0, slideForVerse(action.deck, entry.ref.start)) : 0;
+      if (live) await get().go(at);
+      else if (at > 0) get().select(at);
     } catch (error) {
       get().reportError(error);
     }
@@ -877,7 +1087,11 @@ export const useStore = create<Store>((set, get) => ({
   openPlan: (id) => {
     flushPlan(get);
     const found = get().plans.find((item) => item.id === id);
-    if (found) set({ plan: found });
+    if (!found) return;
+    set({ plan: found });
+    // Remembered across a restart: a plan is built the evening before and
+    // driven the next morning, with the machine off in between.
+    if (get().settings.activePlan !== id) void get().patchSettings({ activePlan: id });
   },
 
   async deletePlan(id) {
@@ -898,7 +1112,19 @@ export const useStore = create<Store>((set, get) => ({
 
   async refreshPlans() {
     try {
-      set({ plans: await api.listPlans() });
+      const plans = await api.listPlans();
+      set({ plans });
+
+      // On the way in, reopen the plan that was open at the last close. Only
+      // when nothing has been built here yet — a plan the operator has
+      // already started adding to this session must not be replaced.
+      const state = get();
+      const wanted = state.settings.activePlan;
+      const untouched = state.plan.entries.length === 0 && !state.plan.name.trim();
+      if (wanted && untouched && state.plan.id !== wanted) {
+        const found = plans.find((item) => item.id === wanted);
+        if (found) set({ plan: found });
+      }
     } catch (error) {
       get().reportError(error);
     }

@@ -404,6 +404,13 @@ button {
   display: flex;
   gap: 8px;
   align-items: center;
+  /* Same reasoning as `.panel__head`: a foot holding a line of hint text was
+     35px against a neighbour's 52px, so the two bars across the bottom of the
+     window sat at different heights. Derived from the control it may hold,
+     plus this padding, so they cannot drift apart again. */
+  /* The border is in the sum for the same reason it is in the head's:
+     `box-sizing` is border-box everywhere. */
+  min-height: calc(var(--control-h) + 18px + 1px);
 }
 
 /* --- Lists --------------------------------------------------------------- */
@@ -553,6 +560,205 @@ button {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* The time an item is expected to start, or how long it runs. Tabular so a
+   column of them lines up, and quiet enough not to compete with the title. */
+/* A line the operator typed, holding the ones under it: heavier, and with a
+   rule above so a service reads as a few groups rather than one long list. */
+.plan__row[data-folder] {
+  color: var(--text);
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.plan__row[data-folder] + .plan__row {
+  margin-top: 0;
+}
+
+/* The chevron a folder folds from: a target, not just a picture. */
+.plan__glyph[data-folds] {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.plan__glyph[data-folds]:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Tucked under the line above. The indent is the only thing that says so, so
+   it is worth more than a couple of pixels — and it grows with the level,
+   which the row sets itself since folders nest. */
+.plan__row[data-depth] {
+  padding-left: 20px;
+}
+
+/* A number with its unit beside a song's title in the editor — minutes, beats
+   per minute. The box carries the border, so the number and the unit read as
+   one control: "3 min", not a 3 that could be anything. */
+.song__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: var(--control-h);
+  padding-inline: 8px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.song__field:focus-within {
+  border-color: var(--accent-line);
+  background: #0a0d11;
+}
+
+/* The number itself is bare: the box around it is the control. */
+.song__field .song__number {
+  width: 26px;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.song__field .song__number:focus {
+  background: transparent;
+}
+
+.song__unit {
+  font-size: 11px;
+  color: var(--text-faint);
+  /* Never wrapped or clipped away — it is the half of the field that says
+     what the number means. */
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The key beside it: the same quiet treatment, a little narrower, and never
+   the thing that squeezes the title. */
+.song__key {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.song__key {
+  gap: 4px;
+}
+
+.song__key .select {
+  /* Wide enough for "B♭" and the arrow, and no wider — the title beside it is
+     what should have the room. */
+  width: 74px;
+  padding-inline: 8px 22px;
+  background-position: calc(100% - 12px) 13px, calc(100% - 7px) 13px;
+}
+
+/* The minor switch: the same height as the note beside it, and unmistakably
+   on or off, because "Am" and "A" are different songs to a musician. */
+.song__minor {
+  appearance: none;
+  flex: none;
+  width: 26px;
+  height: var(--control-h);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel-sunken);
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 13px;
+  font-style: italic;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+.song__minor:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.song__minor[data-on] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--text);
+}
+
+.song__minor:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* On a list row: a small badge after the title, present only for the songs
+   somebody has keyed. */
+/* The key and tempo badges on a song row.
+   The star and the grip float over the row's right end, so the badges stop
+   short of them — otherwise a hovered row put a badge, a handle and a star in
+   the same 40 pixels. */
+.row__tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  margin-right: 46px;
+}
+
+.row__key {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+  line-height: 1.3;
+}
+
+/* The tempo badge carries its unit: a bare "72" beside a title reads as a
+   number of something unsaid, where "72 BPM" is unambiguous. */
+.row__key--bpm::after {
+  content: " BPM";
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+
+
+.plan__time {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+
+.plan__clock {
+  appearance: none;
+  /* Never squeezed, and never the thing that squeezes the name: the bar has
+     the side panel's width and no more. */
+  flex: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.plan__clock:hover {
+  color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 
 .empty {
@@ -2178,6 +2384,18 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
+/* Except the last one. Below it is the slide strip, which draws its own top
+   border — two hairlines with nothing between them read as one thick, wrong
+   line. The same on the other edge when the panel is docked along the
+   bottom. */
+.sidepanel[data-placement="right"] > .sidepanel__section:last-child {
+  border-bottom: 0;
+}
+
+.sidepanel[data-placement="bottom"] > .sidepanel__section:last-child {
+  border-right: 0;
+}
+
 .sidepanel[data-placement="bottom"] > .sidepanel__section {
   border-right: 1px solid var(--border);
 }
@@ -2618,9 +2836,14 @@ button {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  /* Drawn inside the button so switching tabs cannot shift the row's height. */
-  box-shadow: inset 0 -2px 0 transparent;
-  transition: color 0.12s, box-shadow 0.12s, background 0.12s;
+  /* The mark for the open tab sits *on* the row's own border rather than
+     above it — drawn inside the button, the two were a hairline apart and
+     read as a double rule. Every tab carries the same transparent border and
+     the same negative margin, so switching tabs still cannot shift the row's
+     height. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
 
 .sidepanel__tab:hover {
@@ -2630,7 +2853,7 @@ button {
 
 .sidepanel__tab[aria-selected="true"] {
   color: var(--accent);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .sidepanel__count {
@@ -2654,6 +2877,37 @@ button {
   min-height: 34px;
 }
 
+/* The plan's bar carries a name, a clock and two buttons, and the side panel
+   is 268px wide. On one line the name was down to a few characters, so the
+   clock takes a line of its own underneath. */
+.sidepanel__bar--plan {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "name open menu"
+    "clock clock clock";
+  gap: 2px 6px;
+  align-items: center;
+}
+
+.sidepanel__bar--plan > .plan__name {
+  grid-area: name;
+  justify-self: start;
+  max-width: 100%;
+}
+
+.sidepanel__bar--plan > .plan__clock {
+  grid-area: clock;
+  justify-self: start;
+  /* Lined up with the name above it rather than with the button edge. */
+  margin-left: 0;
+}
+
+/* The two buttons are left to auto-place: the named areas above claim the
+   name and the clock, so the only cells left are "open" and "menu", in that
+   order. Selecting them by position would be wrong anyway — the name and the
+   clock are buttons too. */
+
 .plan__name {
   appearance: none;
   border: 0;
@@ -2662,6 +2916,12 @@ button {
   font: inherit;
   font-size: 12px;
   font-weight: 600;
+  /* The name gives way before anything else — a plan called after its date
+     runs long, and the time beside it is the part that must stay readable. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -2695,7 +2955,9 @@ button {
   border-radius: var(--radius-sm);
   padding: 6px;
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  /* Number, kind, words, and the time at the end. The last column is empty
+     until an item has a time, and collapses to nothing when it is. */
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   text-align: left;
@@ -2708,6 +2970,30 @@ button {
   background: var(--panel-raised);
   border-color: var(--border-strong);
   color: var(--text);
+}
+
+/* Picked out with a click: a quiet background, so a run of them reads as a
+   group without competing with what is actually on the screens.
+
+   After `:hover` on purpose. Both are one class and one qualifier, so they
+   carry the same weight and the later rule wins — put first, the hover state
+   painted over the live one the moment the pointer crossed it. */
+.plan__row[aria-selected] {
+  background: var(--panel-raised);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* On the screens right now: the one state that has to be unmistakable from
+   across a desk, and deliberately not what merely being picked looks like.
+   The bar down the edge survives the row being hovered, dragged or selected
+   as well. */
+.plan__row[data-live],
+.plan__row[data-live]:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .plan__index {

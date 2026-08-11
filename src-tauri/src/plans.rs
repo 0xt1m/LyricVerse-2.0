@@ -36,6 +36,21 @@ pub struct PlanEntry {
     pub label: String,
     #[serde(default)]
     pub note: String,
+    /// Folded shut, hiding what is under it. Only meaningful on a folder, and
+    /// saved with the plan: somebody who folds the announcements away expects
+    /// them to stay away next Sunday too.
+    #[serde(default)]
+    pub collapsed: bool,
+    /// 0 for a line of the running order, 1 for something tucked under the
+    /// line above it — the readings that belong to a sermon, say. Only one
+    /// level deep: a service is a list with a few things grouped, not a tree.
+    #[serde(default)]
+    pub depth: u8,
+    /// How long this item is expected to take, in minutes. 0 means nobody has
+    /// said — it is left out of the running times rather than counted as
+    /// instant.
+    #[serde(default)]
+    pub minutes: u32,
     #[serde(rename = "ref")]
     pub ref_: serde_json::Value,
 }
@@ -47,6 +62,10 @@ pub struct Plan {
     pub name: String,
     #[serde(default)]
     pub entries: Vec<PlanEntry>,
+    /// When the service starts, as "HH:MM". Empty means the plan is only a
+    /// running order, and the items show their own length instead of a clock.
+    #[serde(default)]
+    pub starts_at: String,
     /// Epoch milliseconds, so the list can put the most recently touched plan
     /// at the top — which is nearly always the one wanted again.
     #[serde(default)]
@@ -132,6 +151,9 @@ mod tests {
 
     fn entry(id: &str, label: &str) -> PlanEntry {
         PlanEntry {
+            minutes: 0,
+            depth: 0,
+            collapsed: false,
             id: id.into(),
             kind: "song".into(),
             label: label.into(),
@@ -144,6 +166,7 @@ mod tests {
     fn saves_lists_and_removes_a_plan() {
         let dir = temp();
         let plan = Plan {
+            starts_at: String::new(),
             id: "plan-1".into(),
             name: "  Sunday morning  ".into(),
             entries: vec![entry("e1", "Opening song")],
@@ -174,6 +197,7 @@ mod tests {
     fn saving_the_same_id_replaces_rather_than_duplicates() {
         let dir = temp();
         let plan = Plan {
+            starts_at: String::new(),
             id: "plan-1".into(),
             name: "Draft".into(),
             entries: vec![entry("e1", "First")],
@@ -194,7 +218,13 @@ mod tests {
     #[test]
     fn a_plan_needs_a_name() {
         let dir = temp();
-        let plan = Plan { id: "p".into(), name: "   ".into(), entries: vec![], updated_ms: 0 };
+        let plan = Plan {
+            starts_at: String::new(),
+            id: "p".into(),
+            name: "   ".into(),
+            entries: vec![],
+            updated_ms: 0,
+        };
         assert!(save(&dir, plan).is_err());
         fs::remove_dir_all(&dir).ok();
     }

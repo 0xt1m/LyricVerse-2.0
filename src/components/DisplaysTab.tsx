@@ -8,6 +8,7 @@ import {
   type ElementId,
   type HAlign,
   type Layout,
+  type LayoutContent,
   type LayoutElement,
   type Panel,
   type Preset,
@@ -26,7 +27,7 @@ import { sampleCount, sampleLive } from "../lib/sample";
 import { PreviewCard } from "./Preview";
 import { asDisplayInfo, useScreenTargets, type ScreenTarget } from "../lib/screens";
 
-type Content = "song" | "bible" | "media" | "timer";
+type Content = LayoutContent;
 
 export function DisplaysTab() {
   const t = useStore((s) => s.t);
@@ -45,12 +46,33 @@ export function DisplaysTab() {
   const dialogs = useDialogs();
 
   const openMenu = useContextMenu();
-  const [selectedDisplay, setSelectedDisplay] = useState<string | null>(null);
-  const [content, setContent] = useState<Content>("song");
-  const [selected, setSelected] = useState<ElementId | null>("body");
-  const [variant, setVariant] = useState(0);
+  const bookmarks = useStore((s) => s.bookmarks);
+  const remember = useStore((s) => s.remember);
+
+  // Setting a screen up is fiddly: the screen, which of its four layouts, and
+  // the element being moved. All three come back as they were left — the
+  // fallbacks below still apply if the screen or element has since gone.
+  const [selectedDisplay, setSelectedDisplay] = useState<string | null>(
+    bookmarks.displays.screenId,
+  );
+  const [content, setContent] = useState<Content>(bookmarks.displays.content ?? "song");
+  const [selected, setSelected] = useState<ElementId | null>(
+    bookmarks.displays.element ?? "body",
+  );
+  const [variant, setVariant] = useState(bookmarks.displays.sample);
 
   const targets: ScreenTarget[] = useScreenTargets();
+
+  useEffect(() => {
+    remember("displays", {
+      // `activeId` rather than the raw choice: a screen that has been unplugged
+      // should not be what the tab tries to open next time.
+      screenId: selectedDisplay,
+      content,
+      element: selected,
+      sample: variant,
+    });
+  }, [selectedDisplay, content, selected, variant, remember]);
 
   const activeId =
     selectedDisplay && targets.some((item) => item.id === selectedDisplay)
@@ -456,6 +478,7 @@ export function DisplaysTab() {
             <ElementList
               layout={layout}
               content={content}
+              underPassage={preset.referencePlacement === "withPassage"}
               selected={selected}
               onSelect={setSelected}
               onToggle={(id, visible) => patchElement(id, { visible })}
@@ -677,6 +700,7 @@ function WebScreenAddress({
 function ElementList({
   layout,
   content,
+  underPassage,
   selected,
   onSelect,
   onToggle,
@@ -685,6 +709,9 @@ function ElementList({
 }: {
   layout: Layout;
   content: Content;
+  /** References are drawn under the words, so the Reference box is not part of
+   *  this layout at all — offering a switch for it would be offering nothing. */
+  underPassage: boolean;
   selected: ElementId | null;
   onSelect: (id: ElementId) => void;
   onToggle: (id: ElementId, visible: boolean) => void;
@@ -701,6 +728,7 @@ function ElementList({
         : content === "timer"
           ? TIMER_ELEMENTS
           : SONG_ELEMENTS;
+  const shown = underPassage ? order.filter((id) => id !== "reference") : order;
   const byId = new Map(layout.elements.map((element) => [element.id, element]));
 
   return (
@@ -724,7 +752,7 @@ function ElementList({
           gap: 6,
         }}
       >
-        {order.map((id) => {
+        {shown.map((id) => {
           const element = byId.get(id);
           if (!element) return null;
           return (
@@ -1240,9 +1268,9 @@ function BackgroundGroup({
    * Copies this backdrop onto the modes `accept` picks out, and says how many
    * it reached.
    *
-   * The background already covers songs, scripture, slides and the timer — it
-   * belongs to the mode, not to one of its layouts. What it does *not* cross
-   * is modes, which is the work these buttons save.
+   * A background already covers songs, scripture, slides and the timer: it
+   * belongs to the mode, not to one of its layouts. What it does not cross is
+   * modes, which is the work the button below saves.
    */
   const copyBackdrop = (accept: (item: Preset) => boolean): number => {
     const backdrop = {
@@ -1271,11 +1299,6 @@ function BackgroundGroup({
     });
     if (touched > 0) void setPresets(next);
     return touched;
-  };
-
-  const applyToEveryMode = () => {
-    const touched = copyBackdrop(() => true);
-    toast(t("style.backgroundAppliedModes", { n: touched }), "success");
   };
 
   const applyToEveryDisplay = () => {
@@ -1370,10 +1393,6 @@ function BackgroundGroup({
         {presets.length > 1 && (
           <div style={{ display: "grid", gap: 8 }}>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button className="btn btn--sm" onClick={applyToEveryMode}>
-                <Icon name="copy" size={12} />
-                {t("style.backgroundApplyModes")}
-              </button>
               {/* Nothing to carry anywhere when every screen is already on
                   this mode — the button would report work it did not do. */}
               <button
@@ -1568,6 +1587,20 @@ function PresetBehaviour({
             onChange={(constantBackground) => onChange({ constantBackground })}
             label={t("preset.constantBackground")}
           />
+        </Field>
+        <Field label={t("preset.references")} hint={t("preset.referencesHint")}>
+          <select
+            className="select"
+            value={preset.referencePlacement}
+            onChange={(event) =>
+              onChange({
+                referencePlacement: event.target.value as "element" | "withPassage",
+              })
+            }
+          >
+            <option value="element">{t("preset.referencesElement")}</option>
+            <option value="withPassage">{t("preset.referencesWithPassage")}</option>
+          </select>
         </Field>
         <Field hint={t("preset.nextPreviewHint")}>
           <Switch
