@@ -695,6 +695,40 @@ button {
 
 /* On a list row: a small badge after the title, present only for the songs
    somebody has keyed. */
+/* The pairing code in the settings: read out across a room, or copied onto a
+   phone held at arm's length, so it is large and its digits are separated. */
+.remote-code {
+  appearance: none;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--accent);
+  /* The tracking is drawn after the last digit as well, so the string sits
+     off-centre in its box without this. */
+  padding: 4px 8px 4px calc(8px + 0.22em);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.remote-code:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+.remote-code:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.field__hint--error {
+  color: var(--live);
+}
+
 /* The key and tempo badges on a song row.
    The star and the grip float over the row's right end, so the badges stop
    short of them — otherwise a hovered row put a badge, a handle and a star in

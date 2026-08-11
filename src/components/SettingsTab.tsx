@@ -31,6 +31,113 @@ const SHORTCUTS: [string, string[]][] = [
 ];
 
 /**
+ * The phone remote: on or off, the code, and where to open it.
+ *
+ * The address and the code are shown together because they are used together
+ * — somebody holds up a phone, types what is on this panel, and is in. The
+ * status comes from the server rather than from the setting, so a port that
+ * could not be opened says so here instead of failing silently on a Sunday.
+ */
+function RemoteGroup() {
+  const t = useStore((s) => s.t);
+  const settings = useStore((s) => s.settings);
+  const remote = useStore((s) => s.remote);
+  const patchSettings = useStore((s) => s.patchSettings);
+  const reportError = useStore((s) => s.reportError);
+  const toast = useStore((s) => s.toast);
+
+  // The console is told when the server starts or stops, but a panel opened
+  // later has heard nothing — so it asks once.
+  useEffect(() => {
+    void api
+      .remoteStatus()
+      .then((status) => useStore.setState({ remote: status }))
+      .catch(() => {});
+  }, []);
+
+  const address = remote?.urls[0] ?? "";
+
+  return (
+    <div className="group">
+      <div className="group__head">
+        <Icon name="phone" size={13} />
+        {t("settings.remote")}
+      </div>
+      <div className="group__body" style={{ gap: 12 }}>
+        <Switch
+          label={t("settings.remoteOn")}
+          checked={settings.remoteEnabled}
+          onChange={(remoteEnabled) => void patchSettings({ remoteEnabled })}
+        />
+        <div className="field__hint">{t("settings.remoteHint")}</div>
+
+        {settings.remoteEnabled && (
+          <>
+            {remote?.error && <div className="field__hint field__hint--error">{remote.error}</div>}
+
+            <div className="settings-row">
+              <span className="settings-row__label">
+                {t("settings.remoteCode")}
+                <div className="settings-row__sub">{t("settings.remoteNewCodeHint")}</div>
+              </span>
+              {/* Large and spaced: this is read out loud across a room, or
+                  copied onto a phone held at arm's length. Pressing it copies
+                  it — the obvious thing to try, and the fastest way to send it
+                  to somebody in a message. */}
+              <button
+                className="remote-code"
+                title={t("common.copy")}
+                disabled={!settings.remoteCode}
+                onClick={() => {
+                  void navigator.clipboard.writeText(settings.remoteCode);
+                  toast(t("common.copied"), "success");
+                }}
+              >
+                {settings.remoteCode || "······"}
+              </button>
+              <button
+                className="btn"
+                onClick={() =>
+                  void api
+                    .newRemoteCode()
+                    .then((next) => useStore.setState({ settings: next }))
+                    .catch(reportError)
+                }
+              >
+                <Icon name="refresh" size={13} />
+                {t("settings.remoteNewCode")}
+              </button>
+            </div>
+
+            <Field label={t("settings.remoteAddress")} hint={t("settings.remoteDevices", { n: remote?.devices ?? 0 })}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="input"
+                  value={address || t("settings.remoteOffline")}
+                  readOnly
+                  spellCheck={false}
+                />
+                <button
+                  className="btn btn--icon"
+                  title={t("common.copy")}
+                  disabled={!address}
+                  onClick={() => {
+                    void navigator.clipboard.writeText(address);
+                    toast(t("common.copied"), "success");
+                  }}
+                >
+                  <Icon name="copy" size={13} />
+                </button>
+              </div>
+            </Field>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Which sound device tracks and clips come out of.
  *
  * Device labels are only readable once the browser trusts the page with them,
@@ -311,6 +418,8 @@ export function SettingsTab() {
                 </Field>
               </div>
             </div>
+
+            <RemoteGroup />
 
             <div className="group">
               <div className="group__head">

@@ -448,6 +448,11 @@ export interface Settings {
   /** The background picker's grid in order: `#rrggbb` colours and file names
    *  of imported pictures and clips, mixed. */
   backgroundOrder: string[];
+  /** Whether the phone remote is serving, which port it uses, and the six
+   *  digits a phone types to pair with it. */
+  remoteEnabled: boolean;
+  remotePort: number;
+  remoteCode: string;
   /** Named looks, shared across screens. */
   presets: Preset[];
   displays: Record<string, DisplayConfig>;
@@ -567,6 +572,34 @@ export interface Deck {
   title: string;
   slides: DeckSlide[];
 }
+
+/** The phone remote's server, as the settings screen shows it. */
+export interface RemoteStatus {
+  running: boolean;
+  port: number;
+  /** Addresses to open on a phone; the LAN one first. */
+  urls: string[];
+  error: string | null;
+  /** Devices paired right now. */
+  devices: number;
+}
+
+/**
+ * Something a phone has asked for.
+ *
+ * Deliberately coarse: a phone names what it wants shown, and the console
+ * works out what that means with the settings in front of it. Anything finer
+ * would be the remote knowing how decks are built, which is how two versions
+ * of that knowledge start to drift apart.
+ */
+export type RemoteCommand =
+  | { kind: "song"; songbook: string; songId: number }
+  | { kind: "bible"; translation: string; book: number; chapter: number; verse: number }
+  | { kind: "presentation"; presentationId: string }
+  | { kind: "go"; index: number }
+  | { kind: "step"; delta: number }
+  | { kind: "blank" }
+  | { kind: "show" };
 
 // --- Service plans ---------------------------------------------------------
 

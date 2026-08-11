@@ -2,6 +2,7 @@
 // exercise them directly against the real seeded databases.
 pub mod bible;
 /// Public for the integration tests, which read it against real modules.
+pub mod http;
 pub mod numbering;
 pub mod songs;
 
@@ -17,6 +18,7 @@ mod live;
 mod paths;
 mod plans;
 mod presentations;
+mod remote;
 mod seed;
 mod settings;
 mod songio;
@@ -46,6 +48,10 @@ pub const EVENT_LIBRARY: &str = "lyricverse://library";
 pub const EVENT_IDENTIFY: &str = "lyricverse://identify";
 pub const EVENT_TIMER: &str = "lyricverse://timer";
 pub const EVENT_WEB_SCREENS: &str = "lyricverse://webscreens";
+/// Something a phone has asked for. Carried out by the console, which is the
+/// only place that knows how to build a deck out of the settings.
+pub const EVENT_REMOTE: &str = "lyricverse://remote";
+pub const EVENT_REMOTE_STATUS: &str = "lyricverse://remotestatus";
 pub const EVENT_PLAYBACK: &str = "lyricverse://playback";
 /// A menu action the window has to carry out — one that needs a file picker or
 /// knowledge of what is open, neither of which the menu handler has.
@@ -180,10 +186,79 @@ fn save_settings(app: AppHandle, state: State<'_, AppState>, next: Settings) -> 
     };
     display::sync(&app, &stored)?;
     sync_web_screens(&app, &stored);
+    let stored = sync_remote(&app, stored)?;
     appmenu::sync(&app, &stored);
     let _ = app.emit(EVENT_SETTINGS, &stored);
     let _ = app.emit(EVENT_DISPLAYS, display::list(&app)?);
     Ok(stored)
+}
+
+// --- Phone remote ---------------------------------------------------------
+
+/// Starts or stops the remote to match the settings, minting a code the first
+/// time it is switched on.
+///
+/// The code is written back into the settings, so this returns what was
+/// actually stored rather than what it was given.
+fn sync_remote(app: &AppHandle, settings: Settings) -> Result<Settings> {
+    let state = app.state::<AppState>();
+    let settings = if settings.remote_enabled && settings.remote_code.is_empty() {
+        let mut guard = lock(&state.settings)?;
+        guard.remote_code = new_code();
+        settings::save(app, &guard)?;
+        guard.clone()
+    } else {
+        settings
+    };
+
+    let remote = app.state::<remote::Remote>();
+    remote.sync(app, &settings);
+    publish_web(app);
+    let _ = app.emit(EVENT_REMOTE_STATUS, remote.status(&settings));
+    Ok(settings)
+}
+
+/// Six digits, evenly spread. Not a counter and not the clock: the whole point
+/// is that somebody who saw yesterday's code cannot work out today's.
+fn new_code() -> String {
+    format!("{:06}", http::random_u64() % 1_000_000)
+}
+
+#[tauri::command]
+fn remote_status(state: State<'_, AppState>, remote: State<'_, remote::Remote>) -> Result<remote::RemoteStatus> {
+    let settings = lock(&state.settings)?.clone();
+    Ok(remote.status(&settings))
+}
+
+/// Issues a new pairing code, which unpairs every device using the old one.
+#[tauri::command]
+fn new_remote_code(app: AppHandle, state: State<'_, AppState>) -> Result<Settings> {
+    let stored = {
+        let mut guard = lock(&state.settings)?;
+        guard.remote_code = new_code();
+        settings::save(&app, &guard)?;
+        guard.clone()
+    };
+    let stored = sync_remote(&app, stored)?;
+    let _ = app.emit(EVENT_SETTINGS, &stored);
+    Ok(stored)
+}
+
+/// What the console has open, for the phones to list.
+///
+/// Pushed from the console rather than worked out here: the deck is built up
+/// there out of the layout, the parallel translations and how many lines fit a
+/// slide, and none of that is knowledge this side of the app has.
+#[tauri::command]
+fn set_remote_deck(remote: State<'_, remote::Remote>, deck: serde_json::Value) -> Result<()> {
+    remote.set_deck(deck);
+    Ok(())
+}
+
+/// A parsed translation, from the cache the Bible tab fills.
+pub(crate) fn translation_for(app: &AppHandle, name: &str) -> Result<Arc<Translation>> {
+    let state = app.state::<AppState>();
+    translation(app, &state, name)
 }
 
 // --- Web screens ----------------------------------------------------------
@@ -214,7 +289,8 @@ fn publish_web(app: &AppHandle) {
         }))
     })();
     if let Ok(frame) = frame {
-        app.state::<webscreen::WebScreens>().publish(frame);
+        app.state::<webscreen::WebScreens>().publish(frame.clone());
+        app.state::<remote::Remote>().publish(frame);
     }
 }
 
@@ -315,7 +391,7 @@ fn remove_web_screen(app: AppHandle, state: State<'_, AppState>, id: String) -> 
 /// must never wait on the network stack.
 #[tauri::command(async)]
 fn lan_address() -> Option<String> {
-    webscreen::lan_address().map(|ip| ip.to_string())
+    http::lan_address().map(|ip| ip.to_string())
 }
 
 #[tauri::command]
@@ -1145,6 +1221,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(AppState::default())
         .manage(webscreen::WebScreens::default())
+        .manage(remote::Remote::default())
         .manage(appmenu::MenuChecks::default())
         .on_menu_event(|app, event| {
             // The menu bar writes the same settings the in-app View button
@@ -1203,6 +1280,7 @@ pub fn run() {
             // the settings lock itself, and a `std::sync::Mutex` taken twice on
             // one thread does not politely fail — it stops the thread dead.
             sync_web_screens(&handle, &stored);
+            sync_remote(&handle, stored.clone())?;
             appmenu::install(&handle, &stored)?;
             Ok(())
         })
@@ -1215,12 +1293,16 @@ pub fn run() {
                 let app = window.app_handle().clone();
                 display::close_all(&app);
                 app.state::<webscreen::WebScreens>().shutdown_all();
+                app.state::<remote::Remote>().shutdown();
             }
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
             get_settings,
             save_settings,
+            remote_status,
+            new_remote_code,
+            set_remote_deck,
             list_displays,
             sync_displays,
             identify_displays,

@@ -431,9 +431,16 @@ function PassageStack({
             <span
               style={{
                 display: "block",
-                marginTop: "0.35em",
+                // Sized in `em` of the reference itself, so the space above it
+                // scales with the reference rather than with the passage: at
+                // 0.35em of the body text it sat almost on the last line and
+                // read as part of it.
+                marginTop: "0.7em",
                 fontSize: "0.5em",
-                opacity: 0.72,
+                // Quieter than the passage, but still the same white. At 0.72
+                // over a lit plate it greyed out far enough to look as though
+                // it were printed underneath the plate rather than on it.
+                opacity: 0.88,
               }}
             >
               {passage.reference}

@@ -67,6 +67,16 @@ pub struct Settings {
     /// Keyed by screen id — monitors and web screens alike, so a browser
     /// screen picks its preset through exactly the same machinery.
     pub displays: BTreeMap<String, DisplayConfig>,
+    /// Whether the phone remote is serving.
+    ///
+    /// Off by default and never turned on by anything but the operator: it
+    /// opens a port on the hall's network, and that is their decision to make.
+    pub remote_enabled: bool,
+    pub remote_port: u16,
+    /// The six digits a phone types to pair. Generated when the remote is
+    /// first switched on and kept, so the tablet on the sound desk does not
+    /// pair afresh every Sunday — the settings can issue a new one.
+    pub remote_code: String,
     /// Screens served over the network rather than driven by a cable.
     pub web_screens: Vec<WebScreen>,
     /// Which sound device audio and video go out of. Empty means the system
@@ -147,6 +157,9 @@ impl Default for Settings {
             favourite_songs: BTreeMap::new(),
             favourites_first: false,
             song_minutes: BTreeMap::new(),
+            remote_enabled: false,
+            remote_port: crate::remote::DEFAULT_PORT,
+            remote_code: String::new(),
             song_keys: BTreeMap::new(),
             song_bpm: BTreeMap::new(),
             song_order: BTreeMap::new(),
@@ -828,6 +841,18 @@ pub fn repair(settings: &mut Settings) {
         settings.ui_scale = 1.0;
     }
     settings.ui_scale = settings.ui_scale.clamp(MIN_UI_SCALE, MAX_UI_SCALE);
+
+    // Port 0 means "any free port" to the operating system, which for a
+    // remote somebody has to type into a phone is no use at all.
+    if settings.remote_port == 0 {
+        settings.remote_port = crate::remote::DEFAULT_PORT;
+    }
+    // Six digits or nothing: a half-written code from a hand-edited file would
+    // be a lock that opens to a string nobody could be shown.
+    if !(settings.remote_code.len() == 6 && settings.remote_code.bytes().all(|b| b.is_ascii_digit()))
+    {
+        settings.remote_code.clear();
+    }
 
     // A web screen with no entry in `displays` could never be switched on or
     // given a preset, so make sure every one has a place to hold that.

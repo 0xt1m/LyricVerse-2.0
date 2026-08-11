@@ -11,6 +11,8 @@ import type {
   DisplayInfo,
   LiveState,
   Preset,
+  RemoteCommand,
+  RemoteStatus,
   Settings,
   Timer,
   SongbookMeta,
@@ -130,6 +132,9 @@ interface Store {
   settings: Settings;
   displays: DisplayInfo[];
   webScreens: WebScreenStatus[];
+  /** The phone remote's server: up or not, on which address, and how many
+   *  devices are paired. Null until the first status arrives. */
+  remote: RemoteStatus | null;
   /** This machine's address on the network, for the URLs shown to operators. */
   lanAddress: string | null;
   live: LiveState;
@@ -214,6 +219,14 @@ interface Store {
    */
   openRequest: PlanEntry | null;
   clearOpenRequest: () => void;
+  /**
+   * Carries out what a phone asked for.
+   *
+   * The remote names what it wants — this song, this verse, one slide on —
+   * and the work of turning that into a deck happens here, with the same code
+   * the console's own buttons use. The phone never learns how a deck is built.
+   */
+  runRemoteCommand: (command: RemoteCommand) => Promise<void>;
   startNewPlan: (name: string) => void;
   renamePlan: (name: string) => void;
   openPlan: (id: string) => void;
@@ -309,6 +322,9 @@ const EMPTY_SETTINGS: Settings = {
   songOrder: {},
   songMinutes: {},
   songKeys: {},
+  remoteEnabled: false,
+  remotePort: 8099,
+  remoteCode: "",
   songBpm: {},
   presets: [],
   displays: {},
@@ -431,6 +447,9 @@ function flushPlan(get: () => Store) {
 
 let toastSeq = 0;
 
+/** Whether this window's event listeners are already wired. See `init`. */
+let listening = false;
+
 // --- Show history ----------------------------------------------------------
 
 let historySeq = 0;
@@ -516,6 +535,7 @@ export const useStore = create<Store>((set, get) => ({
   settings: EMPTY_SETTINGS,
   displays: [],
   webScreens: [],
+  remote: null,
   lanAddress: null,
   live: EMPTY_LIVE,
   songbooks: [],
@@ -564,6 +584,8 @@ export const useStore = create<Store>((set, get) => ({
       return;
     }
 
+    void get().refreshPlans();
+
     // After the console is up, not before: working this out opens a socket,
     // and on Windows that can sit behind a firewall prompt. Only the Displays
     // tab wants it, and it can manage without it until it arrives.
@@ -572,12 +594,24 @@ export const useStore = create<Store>((set, get) => ({
       .then((lanAddress) => set({ lanAddress }))
       .catch(() => {});
 
+    // Once per window, whatever happens above. React runs an effect twice in
+    // development, and every listener registered a second time fires a second
+    // time — harmless for the ones that only copy state into the store, but a
+    // command listener carried out twice moved two slides for one press of the
+    // remote's Next.
+    if (listening) return;
+    listening = true;
+
     void on<LiveState>(EVENT.live, (live) => set({ live }));
     void on<Timer | null>(EVENT.timer, (timer) => set({ timer }));
     void on<Playback>(EVENT.playback, (playback) => set({ playback }));
     void on<Settings>(EVENT.settings, (settings) => set({ settings }));
     void on<DisplayInfo[]>(EVENT.displays, (displays) => set({ displays }));
     void on<WebScreenStatus[]>(EVENT.webScreens, (webScreens) => set({ webScreens }));
+    void on<RemoteStatus>(EVENT.remoteStatus, (remote) => set({ remote }));
+    // What a phone asked for, carried out here — the console is the only part
+    // of the app that knows how to turn "this song" into a deck.
+    void on<RemoteCommand>(EVENT.remote, (command) => void get().runRemoteCommand(command));
     void on(EVENT.library, () => {
       set((state) => ({ libraryRevision: state.libraryRevision + 1 }));
       void get().refreshLibrary();
@@ -598,7 +632,6 @@ export const useStore = create<Store>((set, get) => ({
       if (command) set({ tab: "songs", songCommand: command });
     });
 
-    void get().refreshPlans();
   },
 
   setTab: (tab) => set({ tab }),
@@ -1063,6 +1096,74 @@ export const useStore = create<Store>((set, get) => ({
         entry.kind === "bible" ? Math.max(0, slideForVerse(action.deck, entry.ref.start)) : 0;
       if (live) await get().go(at);
       else if (at > 0) get().select(at);
+    } catch (error) {
+      get().reportError(error);
+    }
+  },
+
+  async runRemoteCommand(command) {
+    try {
+      switch (command.kind) {
+        case "step":
+          await get().step(command.delta);
+          return;
+        case "go":
+          await get().go(command.index);
+          return;
+        case "blank": {
+          if (!get().blanked) await get().toggleBlank();
+          return;
+        }
+        case "show": {
+          // Whatever is highlighted, not whatever was last live: the operator
+          // may have moved on since it was hidden.
+          await get().go(get().cursor);
+          return;
+        }
+      }
+
+      // A song, a passage, or a deck of slides. Built through the plan's
+      // resolver so the remote opens exactly what the plan would — the same
+      // layout, the same parallel translations, the same lines to a slide.
+      const entry =
+        command.kind === "song"
+          ? ({
+              kind: "song",
+              ref: { songbook: command.songbook, songId: command.songId },
+            } as const)
+          : command.kind === "presentation"
+            ? ({
+                kind: "presentation",
+                ref: { presentationId: command.presentationId },
+              } as const)
+            : ({
+                kind: "bible",
+                ref: {
+                  translation: command.translation,
+                  book: command.book,
+                  chapter: command.chapter,
+                  start: command.verse,
+                  end: command.verse,
+                },
+              } as const);
+
+      const stub = { id: "remote", label: "", note: "", minutes: 0, depth: 0, collapsed: false };
+      const action = await resolvePlanEntry({ ...stub, ...entry } as PlanEntry, get().settings);
+      if (!action || action.kind !== "deck") {
+        get().toast(get().t("remote.missing"), "error");
+        return;
+      }
+
+      await get().loadDeck(action.deck);
+      // Opened on the console too, not only pushed at the screens: whoever is
+      // at the laptop has to be able to see what the phone just did.
+      set({
+        tab: TAB_FOR_PLAN[entry.kind],
+        openRequest: { ...stub, ...entry, label: action.deck.title } as PlanEntry,
+      });
+      const at =
+        command.kind === "bible" ? Math.max(0, slideForVerse(action.deck, command.verse)) : 0;
+      await get().go(at);
     } catch (error) {
       get().reportError(error);
     }

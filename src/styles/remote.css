@@ -1,0 +1,585 @@
+/* ---------------------------------------------------------------------------
+   LyricVerse — the phone remote
+
+   The console's palette, at a phone's scale. Three rules run through all of
+   it:
+
+   * Nothing to aim at. Every target is at least 48px tall, which is the size
+     of a thumb, and the three controls used most sit along the bottom edge
+     where a thumb already is.
+   * One scrolling region. The header, the transport and the tabs are pinned;
+     only the list between them moves, so the controls never wander off.
+   * Dark. This is used in a room with the lights down, next to a lit screen.
+--------------------------------------------------------------------------- */
+
+:root {
+  --bg: #0a0c0f;
+  --panel: #12151a;
+  --panel-raised: #181c23;
+  --panel-sunken: #0d1014;
+  --border: #232833;
+  --border-strong: #313846;
+
+  --text: #e9edf3;
+  --text-muted: #909aab;
+  --text-faint: #626d7e;
+
+  --accent: #22d3ee;
+  --accent-soft: rgba(34, 211, 238, 0.16);
+  --accent-line: rgba(34, 211, 238, 0.45);
+  --accent-ink: #0a0c0f;
+  --live: #e5484d;
+  --ok: #46b17b;
+
+  --verse: #5b8def;
+  --chorus: #f0a83a;
+  --bridge: #b06cf0;
+  --other: #46b17b;
+
+  --radius: 12px;
+  --radius-sm: 8px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+
+  /* A finger, not a cursor. */
+  --tap: 52px;
+  /* The notch, the home bar, and the rounded corners of the phone this is
+     being held in. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  /* No grey flash on tap: it fires on scroll gestures too and makes the whole
+     list look like it is being pressed. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  /* A phone that scrolls the whole page under a fixed layout shows a strip of
+     white below it; this keeps the rubber-banding inside the list. */
+  overscroll-behavior: none;
+}
+
+#root {
+  height: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* --- Pairing ------------------------------------------------------------- */
+
+.pair {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: calc(24px + var(--safe-top)) 24px calc(24px + var(--safe-bottom));
+  text-align: center;
+}
+
+.pair__mark {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.pair__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.pair__hint {
+  margin: 0;
+  max-width: 22em;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* The code itself: big enough to check against the screen across the room,
+   and spaced so six digits are read as six rather than as a number. */
+.pair__code {
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+  padding: 14px 12px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: 0.32em;
+  /* The letter-spacing is drawn after the last digit too, which pushes the
+     whole string off-centre without this. */
+  text-indent: 0.32em;
+}
+
+.pair__code:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+
+.pair__wrong {
+  margin: 0;
+  color: var(--live);
+  font-size: 15px;
+}
+
+.btn {
+  min-height: var(--tap);
+  padding: 0 22px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+.btn--wide {
+  width: 100%;
+  max-width: 320px;
+}
+
+.btn--back {
+  flex: none;
+  background: var(--panel-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 0 16px;
+}
+
+/* --- The shell ----------------------------------------------------------- */
+
+.app {
+  height: 100%;
+  display: grid;
+  /* header · list · transport · tabs. Only the list scrolls. */
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  background: var(--bg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + var(--safe-top)) 16px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Grey when the console cannot be reached, green when it can, and red while
+   something is actually on the screens — the one thing worth knowing without
+   reading anything. */
+.head__dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.head__dot[data-on] {
+  background: var(--ok);
+}
+
+.head__dot[data-live] {
+  background: var(--live);
+  box-shadow: 0 0 0 4px rgba(229, 72, 77, 0.18);
+}
+
+.head__what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.main {
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.section {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 12px 16px 8px;
+  background: linear-gradient(var(--bg) 70%, transparent);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.empty {
+  margin: 0;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-faint);
+}
+
+/* --- Lists --------------------------------------------------------------- */
+
+.list {
+  margin: 0;
+  padding: 0 12px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row,
+.slide {
+  width: 100%;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: left;
+}
+
+.row:active,
+.slide:active {
+  background: var(--panel-raised);
+}
+
+.row__num {
+  flex: none;
+  min-width: 2.2em;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.row__main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row__title,
+.row__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row__title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.row__sub {
+  font-size: 14px;
+  color: var(--text-faint);
+}
+
+.row__count {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A verse is read, not scanned: it wraps instead of ending in an ellipsis. */
+.row--verse {
+  align-items: flex-start;
+}
+
+.row--verse .row__num {
+  padding-top: 2px;
+  color: var(--accent);
+}
+
+.row__text {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/* --- The live deck ------------------------------------------------------- */
+
+.slide {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  /* The colour of what kind of section it is, down the leading edge — the same
+     coding the console uses. */
+  border-left: 4px solid var(--border-strong);
+}
+
+.slide[data-kind="verse"] {
+  border-left-color: var(--verse);
+}
+.slide[data-kind="chorus"] {
+  border-left-color: var(--chorus);
+}
+.slide[data-kind="bridge"] {
+  border-left-color: var(--bridge);
+}
+.slide[data-kind="other"],
+.slide[data-kind="scripture"] {
+  border-left-color: var(--other);
+}
+
+.slide[data-live] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  border-left-color: var(--accent);
+}
+
+.slide__label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.slide[data-live] .slide__label {
+  color: var(--accent);
+}
+
+.slide__text {
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  /* Two lines is enough to tell slides apart; the words themselves are on the
+     wall. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.slide[data-live] .slide__text {
+  color: var(--text);
+}
+
+/* --- Pickers ------------------------------------------------------------- */
+
+.picker {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.picker__where {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.input,
+.select {
+  min-width: 0;
+  flex: 1;
+  height: var(--tap);
+  padding: 0 14px;
+  background: var(--panel-sunken);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  /* iOS zooms the page when a field smaller than 16px takes focus. */
+  font-size: 16px;
+  appearance: none;
+}
+
+.select {
+  padding-right: 34px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+    linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 24px, calc(100% - 14px) 24px;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+
+/* A chapter grid: the fastest way through a book on a touch screen. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+
+.cell {
+  min-height: 60px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell:active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* --- Transport and tabs -------------------------------------------------- */
+
+.transport {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+.transport__btn {
+  min-height: 56px;
+  background: var(--panel-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.transport__btn:active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+
+/* Hiding the screens is the one thing done in a hurry, so it is unmistakable
+   — and it says what pressing it will do, not what the state is. */
+.transport__btn--hide {
+  background: rgba(229, 72, 77, 0.16);
+  border-color: rgba(229, 72, 77, 0.45);
+  color: #ff9a9d;
+}
+
+.transport__btn--hide[data-on] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.tabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bottom);
+}
+
+.tabs__tab {
+  min-height: var(--tap);
+  background: transparent;
+  border: 0;
+  border-top: 2px solid transparent;
+  color: var(--text-faint);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tabs__tab[aria-selected="true"] {
+  color: var(--accent);
+  border-top-color: var(--accent);
+}
+
+/* --- Tablets and landscape phones ---------------------------------------- */
+
+/* Enough width to put the controls beside the list rather than under it. On a
+   tablet held in landscape the bottom edge is a long way from the thumb, and
+   a list that runs the full height shows twice as many songs. */
+@media (min-width: 720px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "head head"
+      "main tabs"
+      "main transport";
+  }
+
+  .head {
+    grid-area: head;
+  }
+
+  .main {
+    grid-area: main;
+  }
+
+  .tabs {
+    grid-area: tabs;
+    /* Down the side column, not across it. */
+    grid-auto-flow: row;
+    align-content: start;
+    border-left: 1px solid var(--border);
+    border-top: 0;
+  }
+
+  .transport {
+    grid-area: transport;
+    grid-template-columns: 1fr;
+    align-content: end;
+    border-left: 1px solid var(--border);
+    padding-bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .transport__btn {
+    min-height: 64px;
+    font-size: 17px;
+  }
+
+  .list {
+    padding-inline: 16px;
+  }
+}

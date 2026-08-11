@@ -15,6 +15,7 @@ import { AudioTab } from "../components/AudioTab";
 import { AudioEngine } from "../components/AudioEngine";
 import { SidePanel } from "../components/SidePanel";
 import { screenName } from "../lib/screens";
+import { api } from "../api";
 import { IS_TAURI, mediaSrc } from "../api/net";
 import { formatTime, percent, playbackPosition, useScrub } from "../lib/playback";
 import { Icon, type IconName } from "../components/ui/Icon";
@@ -64,6 +65,7 @@ export function App() {
 
   useUpdates();
   useUiScale();
+  useRemoteDeck();
 
   useGlobalShortcuts();
 
@@ -867,6 +869,48 @@ function useUiScale() {
       // the setting doing nothing at all.
       .catch(reportError);
   }, [uiScale, reportError]);
+}
+
+/**
+ * Keeps the phone remote's picture of the console up to date.
+ *
+ * A phone shows what is open here — the song's sections, the chapter's verses
+ * — and which of them is live, so whoever is holding it can jump about inside
+ * the current item without going back to a list. Only the labels and a line of
+ * each slide travel: the words are already on the wall, and a chapter of
+ * parallel readings is a great deal of text to push at a phone on hall wifi.
+ */
+function useRemoteDeck() {
+  const enabled = useStore((s) => s.settings.remoteEnabled);
+  const deck = useStore((s) => s.deck);
+  const liveIndex = useStore((s) => s.liveIndex);
+  const cursor = useStore((s) => s.cursor);
+  const blanked = useStore((s) => s.blanked);
+
+  useEffect(() => {
+    if (!IS_TAURI) return;
+    // Nothing is listening when the remote is off, and pushing anyway would
+    // mean the app doing work all service for a feature nobody switched on.
+    if (!enabled) return;
+    void api
+      .setRemoteDeck({
+        title: deck?.title ?? "",
+        source: deck?.source ?? "blank",
+        slides:
+          deck?.slides.map((slide) => ({
+            label: slide.label,
+            kind: slide.kind,
+            text: (slide.summary ?? slide.part).slice(0, 240),
+          })) ?? [],
+        index: liveIndex,
+        cursor,
+        blanked,
+      })
+      .catch(() => {
+        // A remote that missed one update gets the next one; saying so on the
+        // console would be noise about a device in somebody else's hand.
+      });
+  }, [enabled, deck, liveIndex, cursor, blanked]);
 }
 
 /**

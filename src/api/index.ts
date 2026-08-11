@@ -21,6 +21,7 @@ import type {
   SongSummary,
   SongbookMeta,
   TranslationMeta,
+  RemoteStatus,
   RemoteTranslation,
   VerseRow,
   Playback,
@@ -41,6 +42,8 @@ export const EVENT = {
   playback: "lyricverse://playback",
   menu: "lyricverse://menu",
   webScreens: "lyricverse://webscreens",
+  remote: "lyricverse://remote",
+  remoteStatus: "lyricverse://remotestatus",
   download: "lyricverse://download",
 } as const;
 
@@ -179,6 +182,12 @@ export const api = {
   deleteTranslation: (name: string, deleteFile: boolean) =>
     invoke<void>("delete_translation", { name, deleteFile }),
   openDataFolder: () => invoke<void>("open_data_folder"),
+
+  remoteStatus: () => invoke<RemoteStatus>("remote_status"),
+  newRemoteCode: () => invoke<Settings>("new_remote_code"),
+  /** Tells the remote what the console has open, so a phone can list its
+   *  slides and jump between them. */
+  setRemoteDeck: (deck: unknown) => invoke<void>("set_remote_deck", { deck }),
   listDownloadableTranslations: () =>
     invoke<RemoteTranslation[]>("list_downloadable_translations"),
   downloadTranslation: (entry: RemoteTranslation) =>

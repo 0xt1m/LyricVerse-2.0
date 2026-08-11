@@ -5,117 +5,36 @@
 //! leading. Each of those already has a browser, so LyricVerse serves the same
 //! projection page over the local network and they simply open a URL.
 //!
-//! The server binds `0.0.0.0`, so it is reachable from every device on the
-//! network — not just the machine it runs on. That is the entire point, and it
-//! is also why the media route below refuses to serve anything outside the
-//! app's own data directory.
-//!
-//! Hand-rolled HTTP rather than a web framework. The surface is four routes
-//! and the alternative was an async runtime and a dependency tree larger than
-//! the rest of the backend put together.
+//! The listener, the long poll and the plumbing all live in `http`, which the
+//! phone remote uses too. What is here is the routes: the state a screen waits
+//! on, and the media it draws.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
-use std::net::{IpAddr, Shutdown, TcpListener, TcpStream, UdpSocket};
-use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread::JoinHandle;
-use std::time::Duration;
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::TcpStream;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
+use crate::http::{
+    self, lan_address, mime_for, param, send, send_owned, write_head, Broadcast, Listener, Request,
+};
 use crate::settings::Settings;
 
 /// Ports below 1024 need privileges and the ephemeral range is fair game for
 /// anything else on the machine, so new screens are numbered from here.
 pub const DEFAULT_PORT: u16 = 8088;
 
-/// How long a poll is held open before answering with "nothing new". Long
-/// enough that an idle screen is nearly silent, short enough to sit well
-/// inside every proxy and phone-radio idle timeout.
-const POLL_SECONDS: u64 = 25;
-
-/// Enough for the devices in a hall several times over. The cap exists so a
-/// misbehaving client cannot spawn threads without limit.
-const MAX_CONNECTIONS: usize = 64;
-
-// --- The frame every connected screen is waiting for ----------------------
-
-/// The current state of the app, and a revision that increments whenever it
-/// changes.
-///
-/// Screens hold a request open until the revision moves past the one they
-/// already have, so a slide change reaches a tablet as fast as the network
-/// allows without anyone polling on a timer.
-#[derive(Default)]
-pub struct Broadcast {
-    frame: Mutex<Frame>,
-    changed: Condvar,
-}
-
-#[derive(Default, Clone)]
-struct Frame {
-    revision: u64,
-    /// `{settings, live, timer}`, ready to be handed out.
-    state: Option<Arc<Value>>,
-}
-
-impl Broadcast {
-    fn publish(&self, state: Value) {
-        if let Ok(mut frame) = self.frame.lock() {
-            frame.revision = frame.revision.wrapping_add(1);
-            frame.state = Some(Arc::new(state));
-            self.changed.notify_all();
-        }
-    }
-
-    /// Waits for a revision newer than `since`, giving up after `POLL_SECONDS`
-    /// and returning whatever is current.
-    fn wait(&self, since: u64) -> Frame {
-        let Ok(mut frame) = self.frame.lock() else {
-            return Frame::default();
-        };
-        if frame.revision != since {
-            return frame.clone();
-        }
-        let deadline = Duration::from_secs(POLL_SECONDS);
-        let (guard, _) = self
-            .changed
-            .wait_timeout_while(frame, deadline, |f| f.revision == since)
-            .unwrap_or_else(|err| err.into_inner());
-        frame = guard;
-        frame.clone()
-    }
-}
-
-// --- Server lifecycle -----------------------------------------------------
-
-struct Server {
-    port: u16,
-    stop: Arc<AtomicBool>,
-    join: Option<JoinHandle<()>>,
-}
-
-impl Server {
-    fn shutdown(mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-        // `accept` is blocking, so it has to be woken to notice the flag.
-        let _ = TcpStream::connect(("127.0.0.1", self.port))
-            .map(|stream| stream.shutdown(Shutdown::Both));
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
-    }
-}
+// --- Servers --------------------------------------------------------------
 
 /// Every running web screen, keyed by screen id.
 #[derive(Default)]
 pub struct WebScreens {
     broadcast: Arc<Broadcast>,
-    servers: Mutex<HashMap<String, Server>>,
+    servers: Mutex<HashMap<String, Listener>>,
     /// Why a screen is not serving, e.g. its port is already taken. Surfaced
     /// in the Displays tab, because a silent failure here means someone finds
     /// out mid-service.
@@ -161,7 +80,7 @@ impl WebScreens {
         // Stop anything that has been switched off, deleted, or moved port.
         let stale: Vec<String> = servers
             .iter()
-            .filter(|(id, server)| wanted.get(id.as_str()) != Some(&server.port))
+            .filter(|(id, server)| wanted.get(id.as_str()) != Some(&server.port()))
             .map(|(id, _)| id.clone())
             .collect();
         for id in stale {
@@ -190,51 +109,16 @@ impl WebScreens {
         }
     }
 
-    fn start(&self, app: &AppHandle, id: &str, port: u16) -> std::result::Result<Server, String> {
-        // 0.0.0.0 rather than 127.0.0.1: a screen nobody else on the network
-        // can open would be pointless.
-        let listener = TcpListener::bind(("0.0.0.0", port))
-            .map_err(|err| format!("port {port} could not be opened: {err}"))?;
-        listener
-            .set_nonblocking(false)
-            .map_err(|err| err.to_string())?;
-
-        let stop = Arc::new(AtomicBool::new(false));
+    fn start(&self, app: &AppHandle, id: &str, port: u16) -> std::result::Result<Listener, String> {
         let ctx = Arc::new(Ctx {
             screen_id: id.to_string(),
             broadcast: Arc::clone(&self.broadcast),
             app: app.clone(),
             media_root: crate::paths::data_dir(app).ok(),
         });
-        let live = Arc::new(AtomicUsize::new(0));
-        let flag = Arc::clone(&stop);
-
-        let join = std::thread::Builder::new()
-            .name(format!("web-{id}"))
-            .spawn(move || {
-                for stream in listener.incoming() {
-                    if flag.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    let Ok(stream) = stream else { continue };
-                    if live.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
-                        let _ = stream.shutdown(Shutdown::Both);
-                        continue;
-                    }
-                    live.fetch_add(1, Ordering::SeqCst);
-                    let ctx = Arc::clone(&ctx);
-                    let live = Arc::clone(&live);
-                    let _ = std::thread::Builder::new()
-                        .name("web-conn".into())
-                        .spawn(move || {
-                            handle(&ctx, stream);
-                            live.fetch_sub(1, Ordering::SeqCst);
-                        });
-                }
-            })
-            .map_err(|err| err.to_string())?;
-
-        Ok(Server { port, stop, join: Some(join) })
+        Listener::start(port, &format!("web-{id}"), move |stream, request| {
+            route(&ctx, stream, request)
+        })
     }
 
     pub fn status(&self, settings: &Settings) -> Vec<WebScreenStatus> {
@@ -278,21 +162,6 @@ impl WebScreens {
     }
 }
 
-/// This machine's address on the local network.
-///
-/// Opening a UDP socket "to" a public address sends no packets — it only asks
-/// the routing table which interface would be used — which is the shortest
-/// portable way to find the address other devices in the hall can reach.
-pub fn lan_address() -> Option<IpAddr> {
-    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
-    socket.connect("203.0.113.1:80").ok()?;
-    let address = socket.local_addr().ok()?.ip();
-    if address.is_loopback() || address.is_unspecified() {
-        return None;
-    }
-    Some(address)
-}
-
 // --- Request handling -----------------------------------------------------
 
 struct Ctx {
@@ -302,75 +171,18 @@ struct Ctx {
     media_root: Option<PathBuf>,
 }
 
-fn handle(ctx: &Ctx, mut stream: TcpStream) {
-    // A poll is held open deliberately, so the read timeout has to outlast it.
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(POLL_SECONDS + 15)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-
-    let Some(request) = read_request(&stream) else {
-        return;
-    };
+fn route(ctx: &Ctx, stream: &mut TcpStream, request: Request) {
     if request.method != "GET" {
-        let _ = send(&mut stream, 405, "text/plain", &[], b"method not allowed");
+        let _ = send(stream, 405, "text/plain", &[], b"method not allowed");
         return;
     }
-
-    let (path, query) = split_once(&request.target, '?');
-    let path = percent_decode(path);
+    let (path, query) = request.split();
 
     match path.as_str() {
-        "/api/state" => api_state(ctx, &mut stream, query),
-        "/api/media" => api_media(ctx, &mut stream, query, request.range),
-        _ => asset(ctx, &mut stream, &path),
+        "/api/state" => api_state(ctx, stream, query),
+        "/api/media" => api_media(ctx, stream, query, request.range),
+        _ => http::serve_asset(&ctx.app, stream, &path, "display.html"),
     }
-}
-
-struct Request {
-    method: String,
-    target: String,
-    range: Option<(u64, Option<u64>)>,
-}
-
-fn read_request(stream: &TcpStream) -> Option<Request> {
-    let mut reader = BufReader::new(stream);
-    let mut line = String::new();
-    reader.read_line(&mut line).ok()?;
-    let mut parts = line.split_whitespace();
-    let method = parts.next()?.to_string();
-    let target = parts.next()?.to_string();
-
-    let mut range = None;
-    loop {
-        let mut header = String::new();
-        // A client that vanishes mid-request must not hold the thread.
-        if reader.read_line(&mut header).ok()? == 0 {
-            break;
-        }
-        let header = header.trim_end();
-        if header.is_empty() {
-            break;
-        }
-        if let Some(value) = header.strip_prefix("Range:").or_else(|| header.strip_prefix("range:"))
-        {
-            range = parse_range(value.trim());
-        }
-    }
-    Some(Request { method, target, range })
-}
-
-/// Only `bytes=start-` and `bytes=start-end` — the two forms a video element
-/// actually sends. Multi-range requests are answered with the whole file,
-/// which is a legal response.
-fn parse_range(value: &str) -> Option<(u64, Option<u64>)> {
-    let spec = value.strip_prefix("bytes=")?;
-    if spec.contains(',') {
-        return None;
-    }
-    let (start, end) = split_once(spec, '-');
-    let start: u64 = start.trim().parse().ok()?;
-    let end = end.trim();
-    let end = if end.is_empty() { None } else { Some(end.parse().ok()?) };
-    Some((start, end))
 }
 
 // --- Routes ---------------------------------------------------------------
@@ -473,226 +285,4 @@ fn api_media(ctx: &Ctx, stream: &mut TcpStream, query: &str, range: Option<(u64,
         }
     }
     let _ = stream.flush();
-}
-
-/// The projection page and its bundle — the very same build the desktop
-/// windows run, so a browser screen is not a second implementation that can
-/// drift away from the real one.
-fn asset(ctx: &Ctx, stream: &mut TcpStream, path: &str) {
-    let relative = match path.trim_start_matches('/') {
-        "" | "index.html" => "display.html",
-        other => other,
-    };
-    // Nothing above the bundle root, whatever the client asks for.
-    if Path::new(relative)
-        .components()
-        .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-    {
-        let _ = send(stream, 403, "text/plain", &[], b"forbidden");
-        return;
-    }
-
-    let found = ctx
-        .app
-        .asset_resolver()
-        .get(format!("/{relative}"))
-        .or_else(|| ctx.app.asset_resolver().get(relative.to_string()));
-    if let Some(found) = found {
-        let mime = found.mime_type.clone();
-        let _ = send(stream, 200, &mime, &[("Cache-Control", "no-cache")], &found.bytes);
-        return;
-    }
-
-    // In a dev build the bundle is served by Vite and is not embedded, so fall
-    // back to whatever `npm run build:vite` last produced.
-    if cfg!(debug_assertions) {
-        let dist = Path::new(env!("CARGO_MANIFEST_DIR")).join("../dist").join(relative);
-        if let Ok(bytes) = std::fs::read(&dist) {
-            let mime = mime_for(&dist);
-            let _ = send(stream, 200, &mime, &[("Cache-Control", "no-cache")], &bytes);
-            return;
-        }
-        let _ = send(
-            stream,
-            503,
-            "text/plain",
-            &[],
-            b"The projection page has not been built yet. Run `npm run build:vite` once, \
-              or use a release build.",
-        );
-        return;
-    }
-
-    let _ = send(stream, 404, "text/plain", &[], b"not found");
-}
-
-// --- Plumbing -------------------------------------------------------------
-
-fn write_head(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    headers: &[(&str, String)],
-    length: u64,
-) -> std::io::Result<()> {
-    let reason = match status {
-        200 => "OK",
-        206 => "Partial Content",
-        400 => "Bad Request",
-        403 => "Forbidden",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        416 => "Range Not Satisfiable",
-        503 => "Service Unavailable",
-        _ => "Error",
-    };
-    let mut head = format!(
-        "HTTP/1.1 {status} {reason}\r\n\
-         Content-Type: {content_type}\r\n\
-         Content-Length: {length}\r\n\
-         Connection: close\r\n"
-    );
-    for (name, value) in headers {
-        head.push_str(&format!("{name}: {value}\r\n"));
-    }
-    head.push_str("\r\n");
-    stream.write_all(head.as_bytes())
-}
-
-fn send(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    headers: &[(&str, &str)],
-    body: &[u8],
-) -> std::io::Result<()> {
-    let owned: Vec<(&str, String)> =
-        headers.iter().map(|(k, v)| (*k, (*v).to_string())).collect();
-    send_owned(stream, status, content_type, &owned, body)
-}
-
-fn send_owned(
-    stream: &mut TcpStream,
-    status: u16,
-    content_type: &str,
-    headers: &[(&str, String)],
-    body: &[u8],
-) -> std::io::Result<()> {
-    write_head(stream, status, content_type, headers, body.len() as u64)?;
-    stream.write_all(body)?;
-    stream.flush()
-}
-
-fn split_once(text: &str, separator: char) -> (&str, &str) {
-    match text.split_once(separator) {
-        Some((before, after)) => (before, after),
-        None => (text, ""),
-    }
-}
-
-fn param(query: &str, name: &str) -> Option<String> {
-    query.split('&').find_map(|pair| {
-        let (key, value) = split_once(pair, '=');
-        (key == name).then(|| percent_decode(&value.replace('+', " ")))
-    })
-}
-
-fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' && index + 2 < bytes.len() {
-            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).ok();
-            if let Some(byte) = hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
-                out.push(byte);
-                index += 3;
-                continue;
-            }
-        }
-        out.push(bytes[index]);
-        index += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-fn mime_for(path: &Path) -> String {
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    match extension.as_str() {
-        "html" => "text/html; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" => "application/json",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "avif" => "image/avif",
-        "bmp" => "image/bmp",
-        "ico" => "image/x-icon",
-        "mp4" | "m4v" => "video/mp4",
-        "webm" => "video/webm",
-        "mov" => "video/quicktime",
-        "mkv" => "video/x-matroska",
-        "mp3" => "audio/mpeg",
-        "woff2" => "font/woff2",
-        "woff" => "font/woff",
-        "ttf" => "font/ttf",
-        "txt" => "text/plain; charset=utf-8",
-        _ => "application/octet-stream",
-    }
-    .to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decodes_percent_escapes_including_utf8() {
-        assert_eq!(percent_decode("/api/media"), "/api/media");
-        assert_eq!(percent_decode("a%20b"), "a b");
-        // A Ukrainian songbook name round-trips through the query string.
-        assert_eq!(percent_decode("%D0%9F%D1%96%D1%81%D0%BD%D1%96"), "Пісні");
-        // A stray percent is left alone rather than eating the next character.
-        assert_eq!(percent_decode("100%"), "100%");
-    }
-
-    #[test]
-    fn reads_the_query_parameters_a_screen_sends() {
-        assert_eq!(param("since=7", "since").as_deref(), Some("7"));
-        assert_eq!(param("a=1&path=%2Ftmp%2Fx.png", "path").as_deref(), Some("/tmp/x.png"));
-        assert_eq!(param("since=7", "path"), None);
-    }
-
-    #[test]
-    fn parses_the_range_headers_a_video_element_sends() {
-        assert_eq!(parse_range("bytes=0-"), Some((0, None)));
-        assert_eq!(parse_range("bytes=200-1023"), Some((200, Some(1023))));
-        // Multi-range and nonsense both mean "just send the file".
-        assert_eq!(parse_range("bytes=0-1,8-9"), None);
-        assert_eq!(parse_range("chapters=1"), None);
-    }
-
-    #[test]
-    fn a_waiting_screen_is_woken_by_the_next_change() {
-        let broadcast = Arc::new(Broadcast::default());
-        broadcast.publish(serde_json::json!({"live": "one"}));
-        let first = broadcast.wait(0);
-        assert_eq!(first.revision, 1);
-
-        let background = Arc::clone(&broadcast);
-        let waiter = std::thread::spawn(move || background.wait(1));
-        std::thread::sleep(Duration::from_millis(50));
-        broadcast.publish(serde_json::json!({"live": "two"}));
-
-        let second = waiter.join().expect("waiter");
-        assert_eq!(second.revision, 2);
-        assert_eq!(second.state.unwrap()["live"], "two");
-    }
 }

@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
-// The app ships two documents: the operator console (index.html) and the
-// projection surface (display.html) that is loaded into one window per screen.
+// The app ships three documents: the operator console (index.html), the
+// projection surface (display.html) that is loaded into one window per screen,
+// and the phone remote (remote.html), which is only ever served over the
+// network — never loaded into a window here.
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,
@@ -25,6 +27,7 @@ export default defineConfig({
       input: {
         main: resolve(root, "index.html"),
         display: resolve(root, "display.html"),
+        remote: resolve(root, "remote.html"),
       },
     },
   },
