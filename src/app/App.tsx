@@ -50,7 +50,18 @@ const SETUP_TABS: { id: Tab; icon: IconName; key: string }[] = [
   { id: "settings", icon: "settings", key: "tab.settings" },
 ];
 
-const TABS = [...CONTENT_TABS, ...SETUP_TABS];
+/**
+ * The tabs actually in the rail.
+ *
+ * The Camera tab can be switched off — a hall without a camera has no use for
+ * it — and once it is gone it must be gone everywhere: out of the rail, out of
+ * the ⌘-number order, and not left showing because it happened to be open when
+ * the switch was thrown.
+ */
+function visibleTabs(settings: { showCameraTab: boolean }) {
+  const content = CONTENT_TABS.filter((entry) => entry.id !== "camera" || settings.showCameraTab);
+  return { content, all: [...content, ...SETUP_TABS] };
+}
 
 export function App() {
   const ready = useStore((s) => s.ready);
@@ -68,6 +79,14 @@ export function App() {
   useRemoteDeck();
 
   useGlobalShortcuts();
+
+  // Switched off while it was open: step back to the songs rather than leaving
+  // a rail with nothing selected and an empty body beside it.
+  const setTab = useStore((s) => s.setTab);
+  const strandedOnCamera = tab === "camera" && !settings.showCameraTab;
+  useEffect(() => {
+    if (strandedOnCamera) setTab("songs");
+  }, [strandedOnCamera, setTab]);
 
   if (!ready) {
     return <div className="empty" style={{ height: "100%", alignContent: "center" }}>…</div>;
@@ -124,7 +143,7 @@ export function App() {
         {tab === "bible" && <BibleTab />}
         {tab === "presentations" && <PresentationsTab />}
         {tab === "video" && <VideoTab />}
-        {tab === "camera" && <CameraTab />}
+        {tab === "camera" && settings.showCameraTab && <CameraTab />}
         {tab === "audio" && <AudioTab />}
         {tab === "timer" && <TimerTab />}
         {tab === "displays" && <DisplaysTab />}
@@ -233,6 +252,14 @@ function ViewMenu() {
             label: t("view.sidePanel"),
             checked: settings.showSidePanel,
             onSelect: () => void patchSettings({ showSidePanel: !settings.showSidePanel }),
+          },
+          // Not a part of the window like the three above, but the same kind
+          // of decision — what the operator has to look at — and this is where
+          // they will look for it.
+          {
+            label: t("view.cameraTab"),
+            checked: settings.showCameraTab,
+            onSelect: () => void patchSettings({ showCameraTab: !settings.showCameraTab }),
           },
           // Which edge it docks to. Ticks rather than a submenu, and picking
           // the one already set is a no-op — this is a choice between two
@@ -583,6 +610,8 @@ function Rail() {
   const t = useStore((s) => s.t);
   const tab = useStore((s) => s.tab);
   const setTab = useStore((s) => s.setTab);
+  const showCameraTab = useStore((s) => s.settings.showCameraTab);
+  const { content } = visibleTabs({ showCameraTab });
 
   const item = (entry: { id: Tab; icon: IconName; key: string }) => (
     <button
@@ -598,7 +627,7 @@ function Rail() {
 
   return (
     <nav className="rail">
-      {CONTENT_TABS.map(item)}
+      {content.map(item)}
       <div className="rail__spacer" />
       {SETUP_TABS.map(item)}
     </nav>
@@ -786,7 +815,10 @@ function useGlobalShortcuts() {
 
       if ((event.metaKey || event.ctrlKey) && /^[1-9]$/.test(event.key)) {
         event.preventDefault();
-        setTab(TABS[Number(event.key) - 1]?.id ?? "songs");
+        // Counted against the rail as it is drawn: with the Camera tab off,
+        // ⌘5 is whatever now sits fifth, not a gap.
+        const rail = visibleTabs(useStore.getState().settings).all;
+        setTab(rail[Number(event.key) - 1]?.id ?? "songs");
         return;
       }
 

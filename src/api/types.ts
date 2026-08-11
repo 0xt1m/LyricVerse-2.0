@@ -414,6 +414,9 @@ export interface Settings {
   uiScale: number;
   /** Parts of the window the operator can put away. */
   showStatusBar: boolean;
+  /** Whether the Camera tab is in the rail. A hall without a camera has no
+   *  use for it. */
+  showCameraTab: boolean;
   showFilmstrip: boolean;
   /** The preview-and-history panel on the content tabs. */
   showSidePanel: boolean;

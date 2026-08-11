@@ -20,10 +20,11 @@ use crate::settings::Settings;
 
 /// Menu id → the setting it toggles. The id is what comes back in the event,
 /// and the field name is what the frontend already calls it.
-pub const ITEMS: [(&str, &str); 5] = [
+pub const ITEMS: [(&str, &str); 6] = [
     ("view.statusBar", "Status bar"),
     ("view.filmstrip", "Slide strip"),
     ("view.sidePanel", "Side panel"),
+    ("view.cameraTab", "Camera tab"),
     // Where that panel goes. Ticks rather than a submenu: two mutually
     // exclusive items read as a choice, and Tauri's menu has no radio item.
     ("view.sidePanel.right", "Side panel on the right"),
@@ -56,6 +57,7 @@ fn is_on(settings: &Settings, id: &str) -> bool {
         "view.statusBar" => settings.show_status_bar,
         "view.filmstrip" => settings.show_filmstrip,
         "view.sidePanel" => settings.show_side_panel,
+        "view.cameraTab" => settings.show_camera_tab,
         // Anything that is not "bottom" is the default, "right".
         "view.sidePanel.bottom" => settings.side_panel_placement == "bottom",
         "view.sidePanel.right" => settings.side_panel_placement != "bottom",
@@ -70,6 +72,7 @@ pub fn toggle(settings: &mut Settings, id: &str) -> bool {
         "view.statusBar" => settings.show_status_bar = !settings.show_status_bar,
         "view.filmstrip" => settings.show_filmstrip = !settings.show_filmstrip,
         "view.sidePanel" => settings.show_side_panel = !settings.show_side_panel,
+        "view.cameraTab" => settings.show_camera_tab = !settings.show_camera_tab,
         // Picking an edge is a choice, not a toggle: clicking the one already
         // ticked leaves it ticked rather than docking the panel nowhere.
         "view.sidePanel.right" => settings.side_panel_placement = "right".into(),

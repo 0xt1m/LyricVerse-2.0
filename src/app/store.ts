@@ -308,6 +308,7 @@ const EMPTY_SETTINGS: Settings = {
   blankOnSwitch: false,
   uiScale: 1,
   showStatusBar: true,
+  showCameraTab: true,
   showFilmstrip: true,
   showSidePanel: true,
   sidePanelPlacement: "right",

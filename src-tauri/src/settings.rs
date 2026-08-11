@@ -50,6 +50,12 @@ pub struct Settings {
     pub ui_scale: f64,
     /// Parts of the window the operator can put away. All default to shown.
     pub show_status_bar: bool,
+    /// Whether the Camera tab is in the rail at all.
+    ///
+    /// A hall with no camera has no use for it, and a tab nobody will ever
+    /// open is one more thing between the operator and the ones they do. On by
+    /// default: it costs nothing to be there for anyone who does have one.
+    pub show_camera_tab: bool,
     pub show_filmstrip: bool,
     /// The preview-and-history panel on the content tabs.
     pub show_side_panel: bool,
@@ -143,6 +149,7 @@ impl Default for Settings {
             secondary_translations: Vec::new(),
             blank_on_switch: false,
             ui_scale: 1.0,
+            show_camera_tab: true,
             show_status_bar: true,
             show_filmstrip: true,
             show_side_panel: true,

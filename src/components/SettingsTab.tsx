@@ -328,6 +328,14 @@ export function SettingsTab() {
                   onChange={(showFilmstrip) => void patchSettings({ showFilmstrip })}
                   label={t("view.filmstrip")}
                 />
+                {/* Not part of the window like the others, but the same kind
+                    of decision: a hall with no camera should not have to look
+                    at a tab for one. */}
+                <Switch
+                  checked={settings.showCameraTab}
+                  onChange={(showCameraTab) => void patchSettings({ showCameraTab })}
+                  label={t("view.cameraTab")}
+                />
                 <Switch
                   checked={settings.showSidePanel}
                   onChange={(showSidePanel) => void patchSettings({ showSidePanel })}
