@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What the hardened runtime has to be asked for.
+
+  Signing for distribution turns the hardened runtime on, and it denies these
+  by default — so a signed build without this file is *more* broken than an
+  unsigned one, in ways that only show up on somebody else's machine.
+
+  Not the App Store sandbox: this app writes a congregation's songbooks and
+  translations into its own data folder and reads media from anywhere the
+  operator points it, which is not a sandboxed shape.
+-->
+<plist version="1.0">
+<dict>
+	<!-- The webview compiles JavaScript. Without this the window comes up
+	     blank on a hardened build. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+
+	<!-- The camera the Camera tab shows and the projection windows open.
+	     `NSCameraUsageDescription` in Info.plist is what the operator is
+	     asked; this is what lets the answer mean anything. Audio is not
+	     requested anywhere — the camera is captured with `audio: false` —
+	     so there is deliberately no microphone entitlement here. -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+</dict>
+</plist>

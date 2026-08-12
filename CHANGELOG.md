@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.2
+## 2.2.3
 
 The service plan grows up, scripture gets the numbering and the references it
 should always have had, and your phone becomes a remote control.
@@ -59,20 +59,31 @@ builds it with the settings in front of it.
 
 ### Songs
 
+A song is now written in one place: a dialog with the words on the left and the
+sections they make on the right, updating as you type. It opens from **+ → New
+song**, from **Edit**, from right-clicking a song, or by pressing **E**.
+
+- **Paste a whole song in** — from a website or anywhere else — and it is cut
+  into sections, with a chorus written out three times folded back into one
+  section sung three times.
+- **Buttons for the parts**: Verse, Chorus, Bridge, Section drop a heading in
+  at the caret, numbering verses as they go. **Split** cuts the part the caret
+  is in, in two.
+- **Arrange by dragging** the section tiles, or from their buttons and
+  right-click menu: move, duplicate, delete.
+- **⌘Z undoes** anything in there — including a drag or a delete, which no
+  browser can undo on its own.
+- **Key, tempo and duration** are set in the same dialog. The key is a picker
+  with an *m* switch for minor; the key and tempo show as badges in the song
+  list, and the duration becomes the item's length when the song goes into a
+  plan.
 - **Drag to reorder** songs in a songbook, with a button to restore number
-  order.
-- **Key and tempo.** Pick the key a song is played in from a dropdown, with an
-  *m* switch for minor, and give it a BPM. Both show as small badges in the
-  song list.
-- **Duration**, set where you edit the song and carried into any plan it is
-  added to, where it can still be changed.
-- Fields now say what they hold: `3 min` and `72 BPM` rather than a bare
-  number.
-- **Delete** removes the selected songs. **⌘C / ⌘V** copy and paste sections,
-  and a section can be duplicated from the right-click menu.
-- **Paste lyrics from a website** and LyricVerse splits them into sections,
-  folding repeated choruses back together.
-- Right-click the songs or presentations list to add a new one.
+  order. **Delete** removes the selected songs.
+- The slide grid in the tab is now purely a preview and a way to drive: one
+  click selects, a second — or **Enter** — puts it on the screens.
+- Right-click the songs or presentations list to add a new one, and a fresh
+  install starts with a songbook called **001** so there is somewhere to put
+  the first song.
 
 ### Displays and the console
 
@@ -85,6 +96,12 @@ builds it with the settings in front of it.
   gone.
 - **Escape hides and only hides.** Pressed twice in a hurry it can no longer
   put the wrong thing back in front of the room. **B** is still the toggle.
+- **The Camera tab can be switched off** — in the View menu or Settings — for a
+  hall that has no camera. It leaves the ⌘-number order in step behind it.
+- **Update now.** When a new version has been downloaded, the message offering
+  it carries a button rather than waiting for you to quit.
+- A Bible verse, like a song section, takes one click to choose and a second —
+  or Enter — to show.
 
 ### Fixes
 

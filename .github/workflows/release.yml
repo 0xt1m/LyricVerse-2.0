@@ -9,9 +9,24 @@
 # release. `tauri-action` also writes the `latest.json` the app checks on
 # startup, so publishing the draft is what actually offers the update.
 #
-# The signing key never lives in the repository. Set these secrets:
+# No key ever lives in the repository. Set these secrets:
+#
 #   TAURI_SIGNING_PRIVATE_KEY           contents of ~/.lyricverse/updater.key
 #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password (empty if none was set)
+#
+# And, for macOS builds Gatekeeper will accept — without them the Mac
+# installers still build, but unsigned, and every user is told the app is
+# damaged:
+#
+#   APPLE_CERTIFICATE           `openssl base64 -A -in DeveloperID.p12`
+#   APPLE_CERTIFICATE_PASSWORD  the password used when exporting that .p12
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: Name (TEAMID)"
+#   APPLE_API_ISSUER            App Store Connect → Integrations, above the keys
+#   APPLE_API_KEY               that key's Key ID
+#   APPLE_API_KEY_P8            contents of the AuthKey_<KEYID>.p8 file
+#
+# The last one is written to a file below because the notary tool takes a
+# path, not the key itself.
 
 name: Release
 
@@ -41,6 +56,12 @@ jobs:
             args: ""
 
     runs-on: ${{ matrix.platform }}
+    # Job level, not step level: a step's own `env:` is not visible to that
+    # step's `if:`, and the notarisation step has to be able to ask whether
+    # there is a key before it writes one.
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,9 +107,30 @@ jobs:
 
       - run: npm ci
 
+      # Only on the Mac runners, and only once the secret exists — a build run
+      # before they are configured should still produce installers rather than
+      # failing outright. `if:` cannot read the secrets context, so the key
+      # comes through the environment.
+      - name: Prepare the notarisation key
+        if: matrix.platform == 'macos-latest' && env.APPLE_API_KEY_P8 != ''
+        shell: bash
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$APPLE_API_KEY_P8" > ~/private_keys/AuthKey_$APPLE_API_KEY.p8
+          chmod 600 ~/private_keys/AuthKey_$APPLE_API_KEY.p8
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing and notarising the Mac builds. `tauri-action` installs the
+          # certificate into a temporary keychain of its own, so nothing is
+          # left behind on the runner.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ~/private_keys/AuthKey_${{ secrets.APPLE_API_KEY }}.p8
           # Keep the builder's own songbooks and translations out of the
           # installers. They belong to a congregation, not to the program, and
           # much of that text may not be redistributed.
