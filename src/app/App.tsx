@@ -790,8 +790,21 @@ function Toasts() {
   return (
     <div className="toasts">
       {toasts.map((toast) => (
-        <div key={toast.id} className="toast" data-tone={toast.tone} onClick={() => dismiss(toast.id)}>
-          {toast.message}
+        <div key={toast.id} className="toast" data-tone={toast.tone}>
+          <span className="toast__text" onClick={() => dismiss(toast.id)}>
+            {toast.message}
+          </span>
+          {toast.action && (
+            <button
+              className="btn btn--sm btn--primary toast__action"
+              onClick={() => {
+                dismiss(toast.id);
+                toast.action?.run();
+              }}
+            >
+              {toast.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -957,7 +970,14 @@ function useUpdates() {
 
   useEffect(() => {
     void fetchUpdate().then((version) => {
-      if (version) toast(t("update.ready", { version }), "success");
+      if (!version) return;
+      // Applying it restarts the app, which is why it is offered rather than
+      // done: the operator decides whether now is a moment they can spare.
+      // Left alone, it still installs itself when they quit.
+      toast(t("update.ready", { version }), "success", {
+        label: t("update.now"),
+        run: () => void installPendingUpdate(),
+      });
     });
   }, [t, toast]);
 

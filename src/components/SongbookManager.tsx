@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import { useStore } from "../app/store";
 import { Icon } from "./ui/Icon";
-import { Field, Modal, Switch } from "./ui/controls";
+import { Field, Modal } from "./ui/controls";
 import { useContextMenu } from "./ui/ContextMenu";
 import { useDialogs } from "./ui/Dialogs";
 
@@ -20,7 +20,6 @@ export function SongbookManager({ onClose }: { onClose: () => void }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const openMenu = useContextMenu();
   const dialogs = useDialogs();
-  const [deleteFile, setDeleteFile] = useState(false);
 
   const create = async () => {
     if (!name.trim()) return;
@@ -80,9 +79,11 @@ export function SongbookManager({ onClose }: { onClose: () => void }) {
   const confirmRemove = async () => {
     if (!removing) return;
     try {
-      await api.deleteSongbook(removing, deleteFile);
+      // The file goes with it. Keeping a songbook on disk that the app no
+      // longer lists is a file nobody will ever find again, and being asked
+      // about it every time is a question with one answer.
+      await api.deleteSongbook(removing, true);
       setRemoving(null);
-      setDeleteFile(false);
       await refreshLibrary();
     } catch (error) {
       reportError(error);
@@ -188,9 +189,6 @@ export function SongbookManager({ onClose }: { onClose: () => void }) {
           }
         >
           <p style={{ margin: 0, color: "var(--text-muted)" }}>{t("songbook.remove")}</p>
-          {/* Unregistering and erasing are separate, deliberate acts: a
-              mis-click must not destroy a congregation's songs. */}
-          <Switch checked={deleteFile} onChange={setDeleteFile} label={t("songbook.removeFile")} />
         </Modal>
       )}
     </Modal>

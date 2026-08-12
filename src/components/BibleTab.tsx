@@ -352,14 +352,23 @@ export function BibleTab() {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = !!target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+      // A dialog in front of the tab owns the keyboard while it is there.
+      if (document.querySelector(".overlay")) return;
       if (event.key === "/" && !typing) {
         event.preventDefault();
         quickRef.current?.select();
+        return;
+      }
+      // The second half of "choose, then show". Not while typing: in the quick
+      // reference box Enter belongs to the reference being typed.
+      if (event.key === "Enter" && !typing && deck?.source === "bible") {
+        event.preventDefault();
+        void go(cursor);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [deck, cursor, go]);
 
   /**
    * Taking a translation off the list, with erasing the module a separate,
@@ -662,7 +671,12 @@ export function BibleTab() {
                       }
                     }
                     if (range) setRange(null);
-                    void go(index);
+                    // Once to choose, again to show. Picking a verse to read
+                    // next should not put it on the wall over the one being
+                    // read now — but the second click, or Enter, is the whole
+                    // gesture and needs nothing else found first.
+                    if (index === cursor) void go(index);
+                    else select(index);
                   }}
                 />
               ))}

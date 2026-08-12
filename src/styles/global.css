@@ -893,6 +893,169 @@ button {
 
 /* --- Slide tiles ---------------------------------------------------------- */
 
+/* Writing a song: the words on the left, the sections they make on the right.
+   Both columns scroll on their own — a long song must not push the words out
+   of reach of the person writing them. */
+.songform {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(0, 1.15fr);
+  gap: 14px;
+  min-height: 0;
+  height: 100%;
+}
+
+.songform__words {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* What can be added to the words, under the box they go in. */
+.songform__adds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* The key and the tempo, on one line under the title. */
+.songform__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.songform__text {
+  flex: 1;
+  min-height: 220px;
+  resize: none;
+  line-height: 1.55;
+}
+
+.songform__tiles {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.songform__blank {
+  display: grid;
+  place-content: center;
+  height: 100%;
+  min-height: 160px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-faint);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+}
+
+/* The same colour coding as the tiles in the tab, so the preview reads as the
+   thing it is previewing. */
+.songform__tile {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  padding: 8px 10px;
+}
+
+.songform__tile {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+/* The one being carried: lifted rather than faded, so the eye follows it
+   rather than the tiles moving around it. */
+.songform__tile[data-dragging] {
+  cursor: grabbing;
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-panel);
+}
+
+.songform__tile[data-kind="verse"] {
+  border-left-color: var(--verse);
+}
+.songform__tile[data-kind="chorus"] {
+  border-left-color: var(--chorus);
+}
+.songform__tile[data-kind="bridge"] {
+  border-left-color: var(--bridge);
+}
+.songform__tile[data-kind="other"] {
+  border-left-color: var(--other);
+}
+
+.songform__tileHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* Shown on the tile it belongs to, quiet until the pointer is on it. */
+.songform__act {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s, color 0.1s, background 0.1s;
+}
+
+.songform__tile:hover .songform__act,
+.songform__act:focus-visible {
+  opacity: 1;
+}
+
+.songform__act:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Taking a section out is the one thing here that loses words, so it is the
+   one button that colours as a warning. */
+.songform__act--danger:hover {
+  color: var(--live);
+  background: var(--live-soft);
+}
+
+.songform__times {
+  color: var(--accent);
+}
+
+.songform__tileText {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
+/* A narrow window stacks them rather than squeezing both. */
+@media (max-width: 900px) {
+  .songform {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
@@ -1553,6 +1716,14 @@ button {
   height: min(100%, 680px);
 }
 
+/* Nearly the whole window. Writing a song is not answering a question: the
+   words want the room, and the sections beside them want to be readable
+   without scrolling every few lines. */
+.modal--large {
+  width: min(100%, 1360px);
+  height: min(100%, 900px);
+}
+
 @keyframes rise {
   from {
     transform: translateY(8px);
@@ -1590,6 +1761,10 @@ button {
   display: flex;
   flex-direction: column;
   align-content: stretch;
+  /* Takes the height the sheet has left, so a pane inside it can fill and
+     scroll rather than being sized by its own contents. */
+  flex: 1;
+  min-height: 0;
 }
 
 .modal__foot {
@@ -1602,6 +1777,19 @@ button {
 }
 
 /* --- Toasts -------------------------------------------------------------- */
+
+/* The words take the space; the button keeps its own. */
+.toast__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.toast__action {
+  flex: none;
+  /* The strip ignores the pointer so it never blocks the console behind it —
+     a button on one has to take it back. */
+  pointer-events: auto;
+}
 
 .toasts {
   position: fixed;
@@ -1619,6 +1807,10 @@ button {
 }
 
 .toast {
+  /* A toast with a button on it is a row, not a line of text. */
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: var(--panel-raised);
   border: 1px solid var(--border-strong);
   border-left: 3px solid var(--info);

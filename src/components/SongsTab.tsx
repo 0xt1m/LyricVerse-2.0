@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
 import type {
-  LyricsDraft,
   Section,
-  SectionKind,
   Song,
   SongFormat,
   SongSummary,
@@ -12,7 +10,6 @@ import type {
 import { useStore } from "../app/store";
 import { songDeck } from "../lib/deck";
 import { useGridReorder } from "../lib/dragReorder";
-import { useMarquee } from "../lib/marquee";
 import { sectionLabel } from "../lib/i18n";
 import { useTileSelection } from "../lib/selection";
 import { normalize } from "../lib/text";
@@ -20,18 +17,10 @@ import { Icon } from "./ui/Icon";
 import { Empty, SearchInput, useScrollIntoView } from "./ui/controls";
 import { useContextMenu, type MenuEntry } from "./ui/ContextMenu";
 import { useDialogs } from "./ui/Dialogs";
+import { SongDialog } from "./SongDialog";
 import { SongbookManager } from "./SongbookManager";
-import { PasteLyricsDialog } from "./PasteLyricsDialog";
 
 /** Long enough that typing does not thrash the disk, short enough to be safe. */
-const SAVE_DELAY_MS = 600;
-
-const KINDS: { kind: SectionKind; key: string }[] = [
-  { kind: "verse", key: "editor.addVerse" },
-  { kind: "chorus", key: "editor.addChorus" },
-  { kind: "bridge", key: "editor.addBridge" },
-  { kind: "other", key: "editor.addOther" },
-];
 
 /**
  * Songs, edited in place.
@@ -57,6 +46,7 @@ export function SongsTab() {
   const refreshLibrary = useStore((s) => s.refreshLibrary);
   const loadDeck = useStore((s) => s.loadDeck);
   const go = useStore((s) => s.go);
+  const select = useStore((s) => s.select);
   const reportError = useStore((s) => s.reportError);
   const toast = useStore((s) => s.toast);
 
@@ -78,9 +68,9 @@ export function SongsTab() {
     clearOpenRequest();
   }, [openRequest, settings.activeSongbook, patchSettings, clearOpenRequest]);
   const [song, setSong] = useState<Song | null>(null);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [managing, setManaging] = useState(false);
-  const [pasting, setPasting] = useState(false);
+  /** The song being written in the dialog: a new one, or one being rewritten. */
+  const [composing, setComposing] = useState<{ song: Song | null } | null>(null);
   /**
    * Which half of the tab Delete belongs to.
    *
@@ -123,18 +113,12 @@ export function SongsTab() {
     }
   }, [reportError]);
 
-  const edit = useCallback(
-    (next: Song) => {
-      if (!songbook) return;
-      setSong(next);
-      pendingSave.current = { songbook, song: next };
-      if (saveTimer.current !== undefined) window.clearTimeout(saveTimer.current);
-      saveTimer.current = window.setTimeout(() => void flushSave(), SAVE_DELAY_MS);
-    },
-    [songbook, flushSave],
-  );
-
   useEffect(() => () => void flushSave(), [flushSave]);
+
+  /** The song as it is right now, for the splitter's delayed callback — by the
+   *  time it runs, the closed-over `song` may be a version behind. */
+  const songRef = useRef<Song | null>(null);
+  songRef.current = song;
 
   useEffect(() => {
     remember("songs", { songId: selectedId });
@@ -194,24 +178,34 @@ export function SongsTab() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      // A dialog is in front of the tab and owns the keyboard while it is
+      // there — Enter on its Create button must not also put a slide up.
+      if (document.querySelector(".overlay")) return;
 
       if (event.key === "/") {
         event.preventDefault();
         searchRef.current?.select();
         return;
       }
+      // Enter is the second half of "choose, then show": whatever is
+      // highlighted goes to the screens.
+      if (event.key === "Enter" && song && deck?.source === "song") {
+        event.preventDefault();
+        void go(cursor);
+        return;
+      }
       // `code` rather than `key`, so it is the same physical key whichever
       // keyboard layout is active — on a Ukrainian layout this is "у".
       if (event.code === "KeyE" && song && deck?.source === "song") {
         event.preventDefault();
-        setEditingIndex(cursor);
+        setComposing({ song });
         return;
       }
 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [song, deck, cursor]);
+  }, [song, deck, cursor, go]);
 
   /**
    * v1 re-ran a `SELECT *` and JSON-parsed every song on each keystroke, and
@@ -228,14 +222,6 @@ export function SongsTab() {
    */
   const songMinutes = songbook ? (settings.songMinutes[songbook] ?? {}) : {};
 
-  const setSongMinutes = (id: number, minutes: number) => {
-    if (!songbook) return;
-    const book = { ...songMinutes };
-    if (minutes > 0) book[String(id)] = minutes;
-    else delete book[String(id)];
-    void patchSettings({ songMinutes: { ...settings.songMinutes, [songbook]: book } });
-  };
-
   /**
    * The key the open song is played in.
    *
@@ -246,15 +232,6 @@ export function SongsTab() {
    */
   const songKeys = songbook ? (settings.songKeys[songbook] ?? {}) : {};
 
-  const setSongKey = (id: number, value: string) => {
-    if (!songbook) return;
-    const book = { ...songKeys };
-    const trimmed = value.trim();
-    if (trimmed) book[String(id)] = trimmed;
-    else delete book[String(id)];
-    void patchSettings({ songKeys: { ...settings.songKeys, [songbook]: book } });
-  };
-
   /**
    * The tempo it is played at, in beats per minute.
    *
@@ -263,15 +240,6 @@ export function SongsTab() {
    * anything that is not a number, takes the entry away.
    */
   const songBpm = songbook ? (settings.songBpm[songbook] ?? {}) : {};
-
-  const setSongBpm = (id: number, value: string) => {
-    if (!songbook) return;
-    const book = { ...songBpm };
-    const bpm = Number.parseInt(value, 10);
-    if (Number.isFinite(bpm) && bpm > 0) book[String(id)] = Math.min(bpm, 400);
-    else delete book[String(id)];
-    void patchSettings({ songBpm: { ...settings.songBpm, [songbook]: book } });
-  };
 
   /** This songbook's favourites. Ids, so a rename never loses them. */
   const favourites = useMemo(
@@ -524,72 +492,6 @@ export function SongsTab() {
     return out;
   }, [song, settings.language]);
 
-  const moveSection = useCallback(
-    (from: number, to: number) => {
-      if (!song) return;
-      const order = [...song.order];
-      if (to < 0 || to >= order.length || from === to) return;
-      const [moved] = order.splice(from, 1);
-      if (moved === undefined) return;
-      order.splice(to, 0, moved);
-      edit({ ...song, order });
-    },
-    [song, edit],
-  );
-
-  const addSection = (kind: SectionKind) => {
-    if (!song) return;
-    const id = `${kind[0]}${Date.now().toString(36)}${song.sections.length}`;
-    const section: Section = { id, kind, text: "" };
-    edit({ ...song, sections: [...song.sections, section], order: [...song.order, id] });
-    // Drop straight into the new tile — adding one is always followed by
-    // typing into it.
-    setEditingIndex(song.order.length);
-  };
-
-  const setSectionText = (index: number, text: string) => {
-    if (!song) return;
-    const id = song.order[index];
-    if (!id) return;
-    edit({
-      ...song,
-      sections: song.sections.map((section) =>
-        section.id === id ? { ...section, text } : section,
-      ),
-    });
-  };
-
-  const setSectionKind = (index: number, kind: SectionKind) => {
-    if (!song) return;
-    const id = song.order[index];
-    if (!id) return;
-    edit({
-      ...song,
-      sections: song.sections.map((section) =>
-        section.id === id ? { ...section, kind } : section,
-      ),
-    });
-  };
-
-  /**
-   * A section on its own, with a new id.
-   *
-   * Different from a repeat, which is the *same* section standing in the
-   * order twice — edit one occurrence of a repeat and every other changes
-   * with it, which is right for a chorus and wrong for "the second verse is
-   * nearly the first". This one can be edited on its own.
-   */
-  const duplicateSection = (index: number) => {
-    if (!song) return;
-    const id = song.order[index];
-    const source = song.sections.find((section) => section.id === id);
-    if (!source) return;
-    const copy: Section = { ...source, id: freshSectionId(song, source.kind) };
-    const order = [...song.order];
-    order.splice(index + 1, 0, copy.id);
-    edit({ ...song, sections: [...song.sections, copy], order });
-  };
-
   /**
    * The picked sections as text, in the format the app exports and imports —
    * so a chorus can be pasted into another song here, or into an email, and
@@ -619,102 +521,6 @@ export function SongsTab() {
   );
 
   /**
-   * Whatever is on the clipboard, as sections after the cursor.
-   *
-   * The system clipboard wins when it can be read and holds something other
-   * than our own last copy — otherwise a verse copied from a browser would
-   * lose to a stale in-app copy. When reading is refused, the in-app copy is
-   * what there is.
-   */
-  const pasteSections = useCallback(async () => {
-    if (!song) return;
-    let text = copied.current;
-    try {
-      const system = await navigator.clipboard.readText();
-      if (system.trim()) text = system;
-    } catch {
-      // Some platforms refuse to read without a prompt; fall back quietly.
-    }
-    if (!text?.trim()) return;
-
-    try {
-      const parsed = await api.parseSections(text);
-      if (parsed.length === 0) return;
-      // Fresh ids: the pasted sections are their own, even when they came
-      // from this very song a moment ago.
-      const fresh = parsed.map((section, offset) => ({
-        ...section,
-        id: freshSectionId(song, section.kind, offset),
-      }));
-      const at = Math.min(cursor + 1, song.order.length);
-      const order = [...song.order];
-      order.splice(at, 0, ...fresh.map((section) => section.id));
-      edit({ ...song, sections: [...song.sections, ...fresh], order });
-      toast(t("editor.pasted", { n: fresh.length }), "success");
-    } catch (error) {
-      reportError(error);
-    }
-  }, [song, cursor, edit, toast, t, reportError]);
-
-  const repeatSection = (index: number) => {
-    if (!song) return;
-    const id = song.order[index];
-    if (!id) return;
-    const order = [...song.order];
-    order.splice(index + 1, 0, id);
-    edit({ ...song, order });
-  };
-
-  /**
-   * Removes the given occurrences. A section whose last occurrence goes is
-   * removed with it, rather than lingering as something unreachable.
-   */
-  /**
-   * Deletes the open song once its last section has gone, and opens a
-   * neighbour so the tab is never left staring at nothing.
-   */
-  const removeEmptySong = useCallback(async () => {
-    if (!songbook || !song) return;
-    // Whatever edit is queued is for a song about to cease to exist.
-    pendingSave.current = null;
-    setEditingIndex(null);
-    try {
-      await api.deleteSong(songbook, song.id);
-      const remaining = songs.filter((item) => item.id !== song.id);
-      const position = songs.findIndex((item) => item.id === song.id);
-      // The one that takes its place in the list, or the one before it when
-      // the song was last.
-      const next = remaining[Math.min(Math.max(position, 0), remaining.length - 1)] ?? null;
-      setSongs(remaining);
-      setSong(null);
-      setSelectedId(next?.id ?? null);
-      if (!next) await loadDeck(null);
-      toast(t("songs.removedEmpty", { title: song.title }));
-    } catch (error) {
-      reportError(error);
-    }
-  }, [songbook, song, songs, loadDeck, reportError, t, toast]);
-
-  const removeSections = useCallback(
-    (indices: number[]) => {
-      if (!song || indices.length === 0) return;
-      const drop = new Set(indices);
-      const order = song.order.filter((_, index) => !drop.has(index));
-      // A song with nothing left in it is not a song. Removing the last
-      // section removes the song, rather than leaving an empty shell that
-      // cannot be saved and cannot be sung.
-      if (order.length === 0) {
-        void removeEmptySong();
-        return;
-      }
-      const sections = song.sections.filter((section) => order.includes(section.id));
-      edit({ ...song, sections, order });
-      setEditingIndex(null);
-    },
-    [song, edit, removeEmptySong],
-  );
-
-  /**
    * The manager can do this too, but a name is all a new book needs, and at
    * setup — or the first time the app is opened at all — that should not mean
    * a trip through a modal.
@@ -738,40 +544,15 @@ export function SongsTab() {
   };
 
   /**
-   * A whole song out of pasted words, saved and opened for tidying.
+   * A new song is written before it exists.
    *
-   * The splitter's guesses are a starting point, not a verdict: what lands
-   * here is an ordinary song whose sections can be retyped, re-kinded, split
-   * or merged like any other.
+   * Creating an empty one and leaving somebody to fill in tiles was the long
+   * way round: what they have is the words, and the dialog turns those into
+   * the song in one step.
    */
-  const createFromLyrics = async (title: string, draft: LyricsDraft) => {
+  const newSong = () => {
     if (!songbook) return;
-    const id = await api.saveSong(songbook, {
-      id: 0,
-      title,
-      sections: draft.sections,
-      order: draft.order,
-    });
-    setPasting(false);
-    setSelectedId(id);
-    toast(t("songs.pasted", { n: draft.order.length }), "success");
-  };
-
-  const newSong = async () => {
-    if (!songbook) return;
-    await flushSave();
-    try {
-      const id = await api.saveSong(songbook, {
-        id: 0,
-        title: t("songs.untitled"),
-        sections: [{ id: "v1", kind: "verse", text: "" }],
-        order: ["v1"],
-      });
-      setSelectedId(id);
-      setEditingIndex(0);
-    } catch (error) {
-      reportError(error);
-    }
+    setComposing({ song: null });
   };
 
   /** Deletes everything picked, after asking once rather than once each. */
@@ -959,6 +740,18 @@ export function SongsTab() {
     },
     { label: t("menu.show"), icon: "eye", onSelect: () => setSelectedId(item.id) },
     {
+      // Loaded here rather than relying on whichever song happens to be open:
+      // a right-click acts on the row under the cursor.
+      label: t("songs.edit"),
+      icon: "pencil",
+      onSelect: () =>
+        songbook &&
+        void api
+          .getSong(songbook, item.id)
+          .then((loaded) => setComposing({ song: loaded }))
+          .catch(reportError),
+    },
+    {
       label: t("plan.add"),
       icon: "plus",
       // The reference, not the song: the plan looks it up again when it is
@@ -994,63 +787,24 @@ export function SongsTab() {
   };
 
   const songDeckActive = deck?.source === "song";
-  const selection = useTileSelection(songDeckActive ? deck.slides.length : 0, song?.id);
 
   /**
-   * ⌘/Ctrl+C and ⌘/Ctrl+V over the sections.
+   * ⌘/Ctrl+C copies the words of the slide in hand.
    *
-   * Its own effect rather than part of the shortcut handler above, because it
-   * reads the grid's selection, which is declared here. Neither key is taken
-   * while something is being typed into: inside the tile editor or the search
-   * box they belong to the caret.
+   * The last thing here that touches the clipboard, and it only reads: what a
+   * song says is changed where it is written. Not taken while something is
+   * being typed into, where it belongs to the caret.
    */
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!song || !(event.metaKey || event.ctrlKey) || isTyping(event.target)) return;
-      if (event.code === "KeyC") {
-        event.preventDefault();
-        copySections(selection.isMulti ? selection.ordered() : [cursor]);
-      } else if (event.code === "KeyV") {
-        event.preventDefault();
-        void pasteSections();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [song, selection, cursor, copySections, pasteSections]);
-
-  // Delete removes the whole selection, or the highlighted section when there
-  // is none. Declared here because it needs both the selection and the
-  // remover, which are set up above.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
-      if (isTyping(event.target) || !song || !songDeckActive) return;
-      if (pane !== "grid") return;
-
-      const indices = selection.selected.size > 0 ? selection.ordered() : [cursor];
-      if (indices.length === 0) return;
+      if (event.code !== "KeyC") return;
       event.preventDefault();
-      void dialogs
-        .confirm({
-          title: t("editor.removeFromOrder"),
-          message:
-            indices.length > 1
-              ? t("editor.removeManyConfirm", { n: indices.length })
-              : t("editor.removeOneConfirm"),
-          confirmLabel: t("common.delete"),
-          danger: true,
-        })
-        .then((ok) => {
-          if (ok) {
-            removeSections(indices);
-            selection.clear();
-          }
-        });
+      copySections([cursor]);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [song, songDeckActive, cursor, selection, dialogs, removeSections, t, pane]);
+  }, [song, cursor, copySections]);
 
   /**
    * Delete over the song list removes the songs picked there.
@@ -1134,12 +888,6 @@ export function SongsTab() {
                   icon: "plus",
                   disabled: !songbook,
                   onSelect: () => void newSong(),
-                },
-                {
-                  label: t("songs.pasteLyrics"),
-                  icon: "copy",
-                  disabled: !songbook,
-                  onSelect: () => setPasting(true),
                 },
                 {
                   label: t("songs.import"),
@@ -1239,18 +987,47 @@ export function SongsTab() {
                 </option>
               ))}
             </select>
+            {/* Two buttons, and each says what it is for: one makes things,
+                one is the library. The songbook picker beside them is the
+                third control here and no press should be needed to reach the
+                other two. */}
             <button
               className="btn btn--icon"
-              title={t("songs.transfer")}
-              disabled={!songbook}
+              title={t("songs.newHint")}
               onClick={(event) =>
                 openMenu(event, [
-                  { label: t("songs.import"), icon: "plus", onSelect: () => void importSongs() },
                   {
-                    label: t("songs.pasteLyrics"),
-                    icon: "copy",
-                    onSelect: () => setPasting(true),
+                    label: t("songs.new"),
+                    icon: "music",
+                    disabled: !songbook,
+                    onSelect: () => void newSong(),
                   },
+                  {
+                    label: t("songbook.new"),
+                    icon: "folder",
+                    onSelect: () => void newSongbook(),
+                  },
+                ])
+              }
+            >
+              <Icon name="plus" />
+            </button>
+            {/* The library: the books themselves, and moving songs in and out
+                of them. Where the download button used to be, because that is
+                what it was for. */}
+            <button
+              className="btn btn--icon"
+              title={t("songbook.manage")}
+              onClick={(event) =>
+                openMenu(event, [
+                  {
+                    label: t("songbook.manage"),
+                    icon: "folder",
+                    onSelect: () => setManaging(true),
+                  },
+                  "separator",
+
+                  { label: t("songs.import"), icon: "plus", onSelect: () => void importSongs() },
                   "separator",
                   // What is picked takes precedence over the whole book: if the
                   // operator has gone to the trouble of selecting, that is what
@@ -1283,20 +1060,6 @@ export function SongsTab() {
                 ])
               }
             >
-              <Icon name="arrowDown" />
-            </button>
-            <button
-              className="btn btn--icon"
-              onClick={() => void newSongbook()}
-              title={t("songbook.new")}
-            >
-              <Icon name="plus" />
-            </button>
-            <button
-              className="btn btn--icon"
-              onClick={() => setManaging(true)}
-              title={t("songbook.manage")}
-            >
               <Icon name="folder" />
             </button>
           </div>
@@ -1304,102 +1067,24 @@ export function SongsTab() {
 
         <section className="panel" style={{ flex: 1 }}>
           <div className="panel__head">
-            {song ? (
-              <input
-                className="input"
-                style={{ fontSize: 15, fontWeight: 600 }}
-                value={song.title}
-                placeholder={t("editor.title")}
-                onChange={(event) => edit({ ...song, title: event.target.value })}
-              />
-            ) : (
-              <span className="panel__title">{t("songs.slides")}</span>
-            )}
-            {/* The key, for whoever is playing rather than whoever is
-                driving the screen. Blank until somebody fills it in. */}
-            {song &&
-              (() => {
-                const stored = songKeys[String(song.id)] ?? "";
-                const { root, minor } = splitKey(stored);
-                // Anything typed into the old free-text field that is not one
-                // of the roots — "capo 2", say — is kept as an option of its
-                // own, so opening a song never quietly throws it away.
-                const foreign =
-                  root && !KEY_ROOTS.includes(root as (typeof KEY_ROOTS)[number]) ? root : "";
-                return (
-                  <span className="song__key" title={t("songs.keyHint")}>
-                    <select
-                      className="select"
-                      value={root}
-                      onChange={(event) =>
-                        setSongKey(
-                          song.id,
-                          event.target.value ? event.target.value + (minor ? "m" : "") : "",
-                        )
-                      }
-                    >
-                      <option value="">{t("songs.keyShort")}</option>
-                      {foreign && <option value={foreign}>{foreign}</option>}
-                      {KEY_ROOTS.map((note) => (
-                        <option key={note} value={note}>
-                          {note}
-                        </option>
-                      ))}
-                    </select>
-                    {/* Minor is a property of the key, not a separate key, so
-                        it is a switch on the note rather than another 17
-                        entries in the list. Nothing to mark until a note is
-                        picked. */}
-                    <button
-                      type="button"
-                      className="song__minor"
-                      data-on={minor || undefined}
-                      disabled={!root}
-                      title={t("songs.keyMinor")}
-                      aria-pressed={minor}
-                      onClick={() => setSongKey(song.id, root + (minor ? "" : "m"))}
-                    >
-                      m
-                    </button>
-                  </span>
-                );
-              })()}
-            {/* Tempo, beside the key it goes with. */}
-            {song && (
-              <label className="song__field" title={t("songs.bpmHint")}>
-                <input
-                  className="input song__number"
-                  inputMode="numeric"
-                  value={songBpm[String(song.id)] ?? ""}
-                  maxLength={3}
-                  onChange={(event) => setSongBpm(song.id, event.target.value)}
-                />
-                <span className="song__unit">{t("songs.bpmShort")}</span>
-              </label>
-            )}
-            {/* Minutes, next to the words they belong to. Blank until
-                somebody has timed it, and blanking it again takes it off. */}
-            {song && (
-              // The unit is part of the field rather than its placeholder: a
-              // placeholder disappears the moment somebody types, leaving a
-              // bare number that could be anything.
-              <label className="song__field" title={t("songs.minutesHint")}>
-                <input
-                  className="input song__number"
-                  inputMode="numeric"
-                  maxLength={3}
-                  value={songMinutes[String(song.id)] ?? ""}
-                  onChange={(event) => {
-                    const minutes = Number.parseInt(event.target.value, 10);
-                    setSongMinutes(song.id, Number.isFinite(minutes) ? minutes : 0);
-                  }}
-                />
-                <span className="song__unit">{t("songs.minutesShort")}</span>
-              </label>
-            )}
-            <button className="btn btn--sm" onClick={() => void newSong()} disabled={!songbook}>
-              <Icon name="plus" size={13} />
-              {t("songs.new")}
+            {/* Shown, not edited: a song's name belongs with its words, and
+                both are changed together in the dialog behind the button on
+                the right. Two places to rename one song is one too many. */}
+            <span className="panel__title">
+              {song ? `${song.id} · ${song.title}` : t("songs.slides")}
+            </span>
+            {/* Hard right, away from the title they act on: the two of them
+                are the destructive end of this head, and a delete button
+                nestled against a name is a delete button somebody hits. New
+                songs are made from the + under the list. */}
+            <div style={{ flex: 1 }} />
+            <button
+              className="btn btn--sm"
+              disabled={!song}
+              onClick={() => song && setComposing({ song })}
+            >
+              <Icon name="pencil" size={13} />
+              {t("songs.edit")}
             </button>
             <button
               className="btn btn--sm btn--danger btn--icon"
@@ -1424,19 +1109,9 @@ export function SongsTab() {
                 }))}
                 cursor={cursor}
                 liveIndex={liveIndex}
-                editingIndex={editingIndex}
-                selection={selection}
                 onShow={(index) => void go(index)}
-                onEdit={setEditingIndex}
-                onText={setSectionText}
-                onKind={setSectionKind}
-                onMove={moveSection}
-                onRepeat={repeatSection}
-                onDuplicate={duplicateSection}
-                onCopy={copySections}
-                onPaste={() => void pasteSections()}
-                onRemove={removeSections}
-                onAdd={addSection}
+                onSelect={select}
+                onEditSong={() => song && setComposing({ song })}
               />
             )}
           </div>
@@ -1449,8 +1124,18 @@ export function SongsTab() {
       </div>
 
       {managing && <SongbookManager onClose={() => setManaging(false)} />}
-      {pasting && (
-        <PasteLyricsDialog onClose={() => setPasting(false)} onCreate={createFromLyrics} />
+      {composing && songbook && (
+        <SongDialog
+          songbook={songbook}
+          song={composing.song}
+          onClose={() => setComposing(null)}
+          onSaved={(id) => {
+            // Straight to it, whether it was just made or just rewritten: the
+            // tiles are the next thing anybody wants to see.
+            setSelectedId(id);
+            void refreshLibrary();
+          }}
+        />
       )}
     </>
   );
@@ -1465,196 +1150,66 @@ interface GridSlide {
   part: string;
 }
 
+/**
+ * The open song's slides.
+ *
+ * A preview and a way to drive: clicking one puts it on the screens, and that
+ * is all this does. Changing what a song says, what its parts are called or
+ * what order they come in happens where the song is written — the dialog
+ * behind Edit, or E.
+ */
 function SectionGrid({
   slides,
   cursor,
   liveIndex,
-  editingIndex,
-  selection,
   onShow,
-  onEdit,
-  onText,
-  onKind,
-  onMove,
-  onRepeat,
-  onDuplicate,
-  onCopy,
-  onPaste,
-  onRemove,
-  onAdd,
+  onSelect,
+  onEditSong,
 }: {
   slides: GridSlide[];
   cursor: number;
   liveIndex: number | null;
-  editingIndex: number | null;
-  selection: ReturnType<typeof useTileSelection>;
+  /** Puts it on the screens. */
   onShow: (index: number) => void;
-  onEdit: (index: number | null) => void;
-  onText: (index: number, text: string) => void;
-  onKind: (index: number, kind: SectionKind) => void;
-  onMove: (from: number, to: number) => void;
-  onRepeat: (index: number) => void;
-  /** A copy of its own, editable apart from the original. */
-  onDuplicate: (index: number) => void;
-  onCopy: (indices: number[]) => void;
-  onPaste: () => void;
-  onRemove: (indices: number[]) => void;
-  onAdd: (kind: SectionKind) => void;
+  /** Highlights it without showing it. */
+  onSelect: (index: number) => void;
+  /** Opens the whole song for writing — the one way in from here. */
+  onEditSong: () => void;
 }) {
   const t = useStore((s) => s.t);
   const openMenu = useContextMenu();
-  const gridRef = useRef<HTMLDivElement>(null);
-  const { dragging, beginPress } = useGridReorder({
-    containerRef: gridRef,
-    onMove,
-    onClick: (index, event) => {
-      if (!selection.handleClick(index, event)) onShow(index);
-    },
-  });
-
-  // The "add" tile trails the sections and is not selectable.
-  const marquee = useMarquee({
-    containerRef: gridRef,
-    count: slides.length,
-    onSelect: selection.setMany,
-    onClear: selection.clear,
-  });
 
   return (
-    <div ref={gridRef} className="tiles" onPointerDown={marquee.onPointerDown}>
+    <div className="tiles">
       {slides.map((slide, index) => {
-        const inSelection = selection.selected.has(index);
-        const isEditing = index === editingIndex;
         return (
           <div
             key={`${slide.id}:${index}`}
             className="tile"
-            aria-selected={index === cursor || inSelection}
-            data-marked={(inSelection && selection.isMulti) || undefined}
+            aria-selected={index === cursor}
             data-live={index === liveIndex}
-            style={{
-              opacity: dragging === index ? 0.55 : 1,
-              cursor: isEditing ? "default" : dragging === index ? "grabbing" : "grab",
-              touchAction: "none",
-            }}
-            // Dragging is off while a tile is being typed into, or the press
-            // would be stolen from the caret.
-            onPointerDown={(event) => {
-              if (!isEditing) beginPress(event, index);
-            }}
+            // Once to choose, again to show. Clicking through a song to find
+            // the verse that comes next must not put each one on the wall on
+            // the way past.
+            onClick={() => (index === cursor ? onShow(index) : onSelect(index))}
             onContextMenu={(event) =>
               openMenu(event, [
                 { label: t("menu.show"), icon: "eye", onSelect: () => onShow(index) },
-                { label: t("menu.editText"), icon: "pencil", onSelect: () => onEdit(index) },
-                { label: t("editor.repeat"), icon: "repeat", onSelect: () => onRepeat(index) },
-                {
-                  label: t("editor.duplicate"),
-                  icon: "copy",
-                  onSelect: () => onDuplicate(index),
-                },
-                "separator",
-                {
-                  label:
-                    inSelection && selection.isMulti
-                      ? t("editor.copySelected", { n: selection.selected.size })
-                      : t("common.copy"),
-                  icon: "copy",
-                  onSelect: () =>
-                    onCopy(inSelection && selection.isMulti ? selection.ordered() : [index]),
-                },
-                { label: t("editor.paste"), icon: "plus", onSelect: onPaste },
-                "separator",
-                ...KINDS.filter(({ kind }) => kind !== slide.kind).map(({ kind, key }) => ({
-                  label: t("menu.makeKind", { kind: t(key) }),
-                  onSelect: () => onKind(index, kind),
-                })),
-                "separator",
-                {
-                  label:
-                    inSelection && selection.isMulti
-                      ? t("editor.removeSelected", { n: selection.selected.size })
-                      : t("editor.removeFromOrder"),
-                  icon: "trash" as const,
-                  danger: true,
-                  onSelect: () =>
-                    onRemove(
-                      inSelection && selection.isMulti ? selection.ordered() : [index],
-                    ),
-                },
+                { label: t("songs.edit"), icon: "pencil", onSelect: onEditSong },
               ])
             }
           >
             <span className="tile__label" data-kind={slide.kind}>
               {slide.label}
             </span>
-            {isEditing ? (
-              <textarea
-                className="tile__editor"
-                value={slide.part}
-                autoFocus
-                placeholder={t("editor.sectionText")}
-                onChange={(event) => onText(index, event.target.value)}
-                onBlur={() => onEdit(null)}
-                // Enter stays a newline — these are several lines of lyric.
-                // Escape and ⌘/Ctrl+Enter both finish the edit.
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") event.currentTarget.blur();
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-                  }
-                }}
-              />
-            ) : (
-              <span className={slide.part.trim() ? "tile__body" : "tile__body tile__body--dim"}>
-                {slide.part.trim() || t("editor.emptySection")}
-              </span>
-            )}
+            <span className={slide.part.trim() ? "tile__body" : "tile__body tile__body--dim"}>
+              {slide.part.trim() || t("editor.emptySection")}
+            </span>
           </div>
         );
       })}
-
-      {/* Always last: the tile that adds another section. */}
-      <button
-        className="tile tile--add"
-        title={t("editor.addSection")}
-        onClick={(event) =>
-          openMenu(
-            event,
-            KINDS.map(({ kind, key }) => ({
-              label: t(key),
-              icon: "plus" as const,
-              onSelect: () => onAdd(kind),
-            })),
-          )
-        }
-      >
-        <Icon name="plus" size={24} />
-        <span>{t("editor.addSection")}</span>
-      </button>
-
-      {marquee.rect && <div className="marquee" style={marquee.rect} />}
     </div>
   );
-}
-
-/**
- * The roots a key can be picked from.
- *
- * Both spellings of each black note are offered rather than one chosen for
- * everybody: a band that writes E♭ does not want to read D♯ on its own sheet,
- * and which one is "right" depends on the song, not on us.
- */
-const KEY_ROOTS = [
-  "C", "C♯", "D♭", "D", "D♯", "E♭", "E", "F",
-  "F♯", "G♭", "G", "G♯", "A♭", "A", "A♯", "B♭", "B",
-] as const;
-
-/** Splits a stored key — "Am", "B♭", "F♯m" — into its root and its mode. */
-function splitKey(value: string): { root: string; minor: boolean } {
-  const trimmed = value.trim();
-  const minor = trimmed.endsWith("m") && trimmed.length > 1;
-  return { root: minor ? trimmed.slice(0, -1) : trimmed, minor };
 }
 
 function SongRow({
@@ -1758,18 +1313,6 @@ function SongRow({
       </button>
     </div>
   );
-}
-
-/**
- * An id no section in this song is using.
- *
- * The clock is in it because two copies made in the same session must not
- * collide, and the offset because a paste can bring several at once.
- */
-function freshSectionId(song: Song, kind: string, offset = 0): string {
-  let id = `${kind[0] ?? "s"}${Date.now().toString(36)}${song.sections.length + offset}`;
-  while (song.sections.some((section) => section.id === id)) id += "x";
-  return id;
 }
 
 /** What a section is called in exported and copied text: the label somebody

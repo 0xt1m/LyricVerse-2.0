@@ -18,6 +18,13 @@ use crate::error::Result;
 use crate::paths;
 
 const MARKER: &str = ".seeded.json";
+/// The songbook a brand-new install starts with.
+///
+/// A machine with no songbook at all cannot be given a song — there is nowhere
+/// to put one — so the first run leaves one ready. Numbered rather than named:
+/// that is how the books themselves are numbered, and anybody who wants a name
+/// can rename it.
+const STARTER_SONGBOOK: &str = "001";
 /// The v1 of this mechanism wrote a plain-text `.seeded` file.
 const LEGACY_MARKER: &str = ".seeded";
 
@@ -67,8 +74,70 @@ pub fn run(app: &AppHandle) -> Result<()> {
         )?;
     }
 
+    starter_songbook(&songbooks, &mut record);
+
     fs::write(&marker_path, serde_json::to_string_pretty(&record)?)?;
     Ok(())
+}
+
+/// Creates the starter songbook, once ever.
+///
+/// Recorded in the same marker the bundled files use, and for the same reason:
+/// somebody who deletes it has deleted it, and it must not be standing there
+/// again the next time the app opens. A book of that name already on the shelf
+/// is left exactly as it is.
+fn starter_songbook(dir: &Path, record: &mut SeedRecord) {
+    let key = format!("Songbooks/{STARTER_SONGBOOK}");
+    if !record.offered.insert(key) {
+        return;
+    }
+    // `create` refuses a name already taken, which is the behaviour wanted
+    // here — an upgrade that finds one is not an error worth reporting.
+    let _ = crate::songs::create(dir, STARTER_SONGBOOK);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("lyricverse-seed-{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch");
+        dir
+    }
+
+    #[test]
+    fn a_new_install_gets_one_songbook_to_write_in() {
+        let dir = scratch("starter");
+        let mut record = SeedRecord::default();
+
+        starter_songbook(&dir, &mut record);
+        let books = crate::songs::list(&dir).expect("list");
+        assert_eq!(books.len(), 1);
+        assert_eq!(books[0].name, STARTER_SONGBOOK);
+        assert_eq!(books[0].song_count, 0);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_it_is_final() {
+        let dir = scratch("starter-deleted");
+        let mut record = SeedRecord::default();
+        starter_songbook(&dir, &mut record);
+
+        // The operator removes it — the manifest is how the app knows what it
+        // has, so emptying that is the removal.
+        fs::write(dir.join("songbooks.json"), "{}").expect("write");
+
+        // Every launch after that runs this again, and it must stay gone.
+        starter_songbook(&dir, &mut record);
+        starter_songbook(&dir, &mut record);
+        assert!(crate::songs::list(&dir).expect("list").is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 /// Copies data files that have never been offered before, then merges the

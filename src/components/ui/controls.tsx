@@ -6,17 +6,30 @@ import { Icon } from "./Icon";
 export function Modal({
   title,
   onClose,
+  /**
+   * What a click outside the sheet does, when that is not simply closing.
+   *
+   * A dialog somebody has been working in should keep that work rather than
+   * throw it away because they clicked past the edge — and one that cannot be
+   * saved yet should stay open and say so. Doing nothing here holds it open.
+   */
+  onDismiss,
   children,
   footer,
   wide,
+  /** Wider and taller again — for a dialog somebody works in rather than
+   *  answers, such as writing a song. */
+  large,
   /** Let the content manage its own scrolling instead of scrolling the sheet. */
   fill,
 }: {
   title: string;
   onClose: () => void;
+  onDismiss?: () => void;
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  large?: boolean;
   fill?: boolean;
 }) {
   useEffect(() => {
@@ -32,8 +45,16 @@ export function Modal({
   }, [onClose]);
 
   return (
-    <div className="overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className={wide ? "modal modal--wide" : "modal"} role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className="overlay"
+      onMouseDown={(event) => event.target === event.currentTarget && (onDismiss ?? onClose)()}
+    >
+      <div
+        className={`modal${large ? " modal--large" : wide ? " modal--wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
         <div className="modal__head">
           <div className="modal__title">{title}</div>
           <button className="btn btn--ghost btn--icon" onClick={onClose} aria-label="Close">

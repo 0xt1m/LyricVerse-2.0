@@ -55,6 +55,15 @@ export interface Toast {
   id: number;
   message: string;
   tone: "info" | "error" | "success";
+  /**
+   * Something to do about it, offered on the toast itself.
+   *
+   * For the few messages that are really an offer — "an update is ready" is
+   * one — where making somebody find the same thing in a menu afterwards is
+   * the difference between it happening and not. A toast carrying one stays
+   * up until it is answered or dismissed.
+   */
+  action?: { label: string; run: () => void };
 }
 
 /**
@@ -254,7 +263,7 @@ interface Store {
 
   init: () => Promise<void>;
   setTab: (tab: Tab) => void;
-  toast: (message: string, tone?: Toast["tone"]) => void;
+  toast: (message: string, tone?: Toast["tone"], action?: Toast["action"]) => void;
   dismissToast: (id: number) => void;
   reportError: (error: unknown) => void;
 
@@ -644,9 +653,12 @@ export const useStore = create<Store>((set, get) => ({
 
   setSidePreviewDisplay: (sidePreviewDisplayId) => set({ sidePreviewDisplayId }),
 
-  toast(message, tone = "info") {
+  toast(message, tone = "info", action) {
     const id = ++toastSeq;
-    set((state) => ({ toasts: [...state.toasts, { id, message, tone }] }));
+    set((state) => ({ toasts: [...state.toasts, { id, message, tone, action }] }));
+    // One with something to do about it waits: a button that takes itself away
+    // after three seconds is worse than no button.
+    if (action) return;
     window.setTimeout(() => get().dismissToast(id), tone === "error" ? 6000 : 3200);
   },
 
